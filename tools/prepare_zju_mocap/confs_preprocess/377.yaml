@@ -1,0 +1,16 @@
+dataset:
+  zju_mocap_path: data
+  subject: '377'
+  sex: 'neutral'
+  model_path: 'data/body_models/smpl'
+  start_frame: 0
+  end_frame: -1
+  scale_ratio: 1 # use for scale the subject into an unit sphere
+  preprocess_views: [0]
+  multi_view: True
+  use_smpl_sdf: True
+  bbox_margin: 0.05
+
+output:
+  dir: data/data_prepared
+  name: 'CoreView_377'

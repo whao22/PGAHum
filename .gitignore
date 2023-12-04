@@ -1,0 +1,17 @@
+.vscode
+__pycache__
+data
+exp
+test
+*.log
+*.out
+out
+output
+.zip
+*.pkl
+.so
+build
+dist
+*egg-info
+*obj
+*zip
