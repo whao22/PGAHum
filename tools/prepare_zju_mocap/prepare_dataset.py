@@ -50,6 +50,8 @@ def process_view(cfg, subject, select_view, subject_dir, smpl_params_dir, annots
     start_frame = cfg['dataset']['start_frame']
     end_frame = cfg['dataset']['end_frame']
     scale_ratio = cfg['dataset']['scale_ratio']
+    volume_size = cfg['dataset']['volume_size']
+    
     
     # load cameras
     cams = annots['cams']
@@ -163,24 +165,24 @@ def process_view(cfg, subject, select_view, subject_dir, smpl_params_dir, annots
         vertices_v = np.matmul(T[:, :3, :3], vertices[..., np.newaxis]).squeeze(-1) + T[:, :3, -1]
         
         # prepare smpl sdf
-        prepare_smpl_sdf(output_path, vertices_v)
+        prepare_smpl_sdf(output_path, vertices_v, volume_size)
 
-def prepare_smpl_sdf(output_path, vertices):
+def prepare_smpl_sdf(output_path, vertices, volume_size):
     PADDING = 0.05
     faces = np.load('data/body_models/misc/faces.npz')['faces']
-    smpl_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-    
-    bbmax = np.max(vertices) + PADDING
-    bbmin = np.min(vertices) - PADDING
 
-    vertices_norm = (vertices - bbmin) / (bbmax - bbmin)
-    sdf_grid = mesh2sdf.compute(vertices_norm, smpl_mesh.faces, size=256)
+    maxv = abs(vertices).max()
+    bbmax = maxv + PADDING
+    bbmin = -maxv - PADDING
+
+    vertices_norm = (vertices - bbmin) / (bbmax - bbmin + 1e-10)
+    vertices_norm = (vertices_norm - 0.5) * 2
+    sdf_grid = mesh2sdf.compute(vertices_norm, faces, size=volume_size)
 
     smpl_sdf={
-        "grid_sdf": sdf_grid,
+        "sdf_grid": sdf_grid,
         "bbmax": bbmax,
         "bbmin": bbmin,
-        "padding": PADDING
     }
     np.save(os.path.join(output_path, 'smpl_sdf.npy'), smpl_sdf)
 

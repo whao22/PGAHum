@@ -16,8 +16,6 @@ from libs.utils.general_utils import augm_rots, sample_sdf_from_grid
 
 from libs.renderers.renderer import IDHRenderer
 from libs.renderers.loss import IDHRLoss
-Z_VALS = True
-
 
 img2mse = lambda x, y : torch.mean((x - y) ** 2)
 img2l1 = lambda x, y : torch.mean(torch.abs(x-y))
@@ -66,6 +64,7 @@ class HFAvatar(pl.LightningModule):
         self.pose_input_noise = conf.train.pose_input_noise
         self.nv_noise_type = conf.train.nv_noise_type
         self.sdf_mode = conf.train.sdf_mode
+        self.inner_sampling = conf.dataset.inner_sampling
         
         # Loss Function
         rgb_loss_type = conf['train.rgb_loss_type']
@@ -96,6 +95,7 @@ class HFAvatar(pl.LightningModule):
                                     self.color_network,
                                     total_bones=self.total_bones,
                                     sdf_mode = self.sdf_mode,
+                                    inner_sampling = self.inner_sampling,
                                     **self.conf['model.neus_renderer'])      
         
     def get_cos_anneal_ratio(self):
@@ -183,7 +183,7 @@ class HFAvatar(pl.LightningModule):
             for i in tqdm(range(n_batches)):
                 data_batch = data.copy()
                 data_batch['batch_rays'] = data_batch['batch_rays'][:, i*self.N_rays:(i+1)*self.N_rays]
-                if Z_VALS:
+                if self.inner_sampling:
                     data_batch['z_vals'] = data_batch['z_vals'][:, i*self.N_rays:(i+1)*self.N_rays]
                     data_batch['hit_mask'] = data_batch['hit_mask'][:, i*self.N_rays:(i+1)*self.N_rays]
                 render_out = self.renderer.render(data_batch, self.global_step, cos_anneal_ratio=self.get_cos_anneal_ratio(), sdf_decoder=sdf_decoder)

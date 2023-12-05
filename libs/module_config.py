@@ -136,6 +136,7 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
     ray_shoot_mode = cfg.dataset.ray_shoot_mode
     box_margin = cfg.dataset.box_margin
     N_samples = cfg.model.neus_renderer.n_samples
+    inner_sampling = cfg.dataset.inner_sampling
 
     splits = {
         'train': cfg.dataset.train_split,
@@ -193,6 +194,7 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
             N_patches=N_patches,
             sample_subject_ratio=sample_subject_ratio,
             N_samples=N_samples,
+            inner_sampling=inner_sampling,
         )
     return dataset
 

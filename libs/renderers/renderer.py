@@ -9,7 +9,6 @@ from collections import OrderedDict
 
 from libs.utils.general_utils import normalize_canonical_points, hierarchical_softmax, sample_sdf, sample_sdf_from_grid
 
-Z_VALS = True
 
 def compute_gradient(y, x, grad_outputs=None, retain_graph=True, create_graph=True):
     if grad_outputs is None:
@@ -103,6 +102,7 @@ class IDHRenderer:
                  is_adasamp,
                  total_bones,
                  sdf_mode,
+                 inner_sampling,
                  **kwargs):
         self.pose_decoder = pose_decoder
         self.motion_basis_computer = motion_basis_computer
@@ -121,107 +121,10 @@ class IDHRenderer:
         self.is_adasamp = is_adasamp
         self.total_bones = total_bones
         self.sdf_mode = sdf_mode
+        self.inner_sampling = inner_sampling
         self.N_iter_backward = kwargs.get('N_iter_backward', 1)
         self.non_rigid_kick_in_iter = kwargs.get('non_rigid_kick_in_iter', 5000)
         self.pose_refine_kick_in_iter = kwargs.get('pose_refine_kick_in_iter', 5000)
-    
-    
-    def up_sample(self, rays_o, rays_d, z_vals, sdf, n_importance, inv_s):
-        """
-        Up sampling give a fixed inv_s
-        """
-        batch_size, n_samples = z_vals.shape
-        pts = rays_o[:, None, :] + rays_d[:, None, :] * z_vals[..., :, None]  # n_rays, n_samples, 3
-        radius = torch.linalg.norm(pts, ord=2, dim=-1, keepdim=False)
-        inside_sphere = (radius[:, :-1] < 1.0) | (radius[:, 1:] < 1.0)
-        sdf = sdf.reshape(batch_size, n_samples)
-        prev_sdf, next_sdf = sdf[:, :-1], sdf[:, 1:]
-        prev_z_vals, next_z_vals = z_vals[:, :-1], z_vals[:, 1:]
-        mid_sdf = (prev_sdf + next_sdf) * 0.5
-        cos_val = (next_sdf - prev_sdf) / (next_z_vals - prev_z_vals + 1e-5)
-
-        # ----------------------------------------------------------------------------------------------------------
-        # Use min value of [ cos, prev_cos ]
-        # Though it makes the sampling (not rendering) a little bit biased, this strategy can make the sampling more
-        # robust when meeting situations like below:
-        #
-        # SDF
-        # ^
-        # |\          -----x----...
-        # | \        /
-        # |  x      x
-        # |---\----/-------------> 0 level
-        # |    \  /
-        # |     \/
-        # |
-        # ----------------------------------------------------------------------------------------------------------
-        prev_cos_val = torch.cat([torch.zeros([batch_size, 1]).to(cos_val), cos_val[:, :-1]], dim=-1)
-        cos_val = torch.stack([prev_cos_val, cos_val], dim=-1)
-        cos_val, _ = torch.min(cos_val, dim=-1, keepdim=False)
-        cos_val = cos_val.clip(-1e3, 0.0) * inside_sphere
-
-        dist = (next_z_vals - prev_z_vals)
-        prev_esti_sdf = mid_sdf - cos_val * dist * 0.5
-        next_esti_sdf = mid_sdf + cos_val * dist * 0.5
-        prev_cdf = torch.sigmoid(prev_esti_sdf * inv_s)
-        next_cdf = torch.sigmoid(next_esti_sdf * inv_s)
-
-        p = prev_cdf - next_cdf
-
-        alpha = (p + 1e-5) / (prev_cdf + 1e-5)
-        weights = alpha * torch.cumprod(
-            torch.cat([torch.ones([batch_size, 1]).to(alpha), 1. - alpha + 1e-7], -1), -1)[:, :-1]
-
-        z_samples = sample_pdf(z_vals, weights, n_importance, det=True).detach()
-        return z_samples
-
-    def up_sample_mid(self, rays_o, rays_d, z_vals, sdf, n_importance, inv_s):
-        """
-        Up sampling give a fixed inv_s
-        """
-        batch_size, n_samples = z_vals.shape
-        pts = rays_o[:, None, :] + rays_d[:, None, :] * z_vals[..., :, None]  # n_rays, n_samples, 3
-        radius = torch.linalg.norm(pts, ord=2, dim=-1, keepdim=False)
-        inside_sphere = (radius[:, :-1] < 1.0) | (radius[:, 1:] < 1.0)
-        sdf = sdf.reshape(batch_size, n_samples)
-        prev_sdf, next_sdf = sdf[:, :-1], sdf[:, 1:]
-        prev_z_vals, next_z_vals = z_vals[:, :-1], z_vals[:, 1:]
-        # mid_sdf = (prev_sdf + next_sdf) * 0.5
-        cos_val = (next_sdf - prev_sdf) / (next_z_vals - prev_z_vals + 1e-5)
-
-        prev_cos_val = torch.cat([torch.zeros([batch_size, 1]), cos_val[:, :-1]], dim=-1)
-        cos_val = torch.stack([prev_cos_val, cos_val], dim=-1)
-        cos_val, _ = torch.min(cos_val, dim=-1, keepdim=False)
-        cos_val = cos_val.clip(-1e3, 0.0) * inside_sphere
-
-        dist = (next_z_vals - prev_z_vals)
-        cdf = torch.sigmoid(prev_sdf * inv_s)
-        e = inv_s * (1 - cdf) * (-cos_val) * dist
-        alpha = (1 - torch.exp(-e)).reshape(batch_size, n_samples-1).clip(0.0, 1.0)
-
-        weights = alpha * torch.cumprod(
-            torch.cat([torch.ones([batch_size, 1]), 1. - alpha + 1e-7], -1), -1)[:, :-1]
-
-        z_samples = sample_pdf(z_vals, weights, n_importance, det=True).detach()
-        return z_samples
-
-    def cat_z_vals(self, rays_o, rays_d, z_vals, new_z_vals, sdf, deform_kwargs, last=False):
-        batch_size, n_samples = z_vals.shape
-        _, n_importance = new_z_vals.shape
-        pts_obs = rays_o[:, None, :] + rays_d[:, None, :] * new_z_vals[..., :, None] # (batch_size, n_new_z_vals, 3)
-        pts_cnl, _, _ = self.deform_points(pts_obs, **deform_kwargs)
-        z_vals = torch.cat([z_vals, new_z_vals], dim=-1)
-        z_vals, index = torch.sort(z_vals, dim=-1)
-
-        if not last:
-            new_sdf = self.sdf_network.sdf(pts_cnl.reshape(-1, 3)).reshape(batch_size, n_importance)
-            sdf = torch.cat([sdf, new_sdf], dim=-1)
-            xx = torch.arange(batch_size)[:, None].expand(batch_size, n_samples + n_importance).reshape(-1)
-            index = index.reshape(-1)
-            sdf = sdf[(xx, index)].reshape(batch_size, n_samples + n_importance)
-
-        return z_vals, sdf
-    
         
     def dirs_from_pts(self, pts):
         """calculate direction of points by next points minus current points
@@ -246,7 +149,6 @@ class IDHRenderer:
         dirs_cnl = torch.matmul(transforms_bwd[..., :3, :3].squeeze(), -ray_dirs.view(-1, 3, 1))
         return dirs_cnl.reshape(N_rays, N_samples, 3)
         
-    
     def render_outside(self, rays_o, rays_d, z_vals, deform_kwargs, background_rgb=None):
         """Render background """
         N_rays, N_samples = z_vals.shape
@@ -259,8 +161,8 @@ class IDHRenderer:
 
         # Section midpoints
         pts_obs = rays_o[:, None, :] + rays_d[:, None, :] * mid_z_vals[..., :, None]  # (N_rays, N_samples, 3)
-        # pts_cnl, _, _ = self.deform_points(pts_obs, **deform_kwargs) # (N_rays, N_samples, 3)
-        pts_cnl, pts_mask = self.deform_points2(pts_obs, **deform_kwargs)
+        pts_cnl, _, _ = self.deform_points(pts_obs, **deform_kwargs) # (N_rays, N_samples, 3)
+        # pts_cnl, pts_mask = self.deform_points2(pts_obs, **deform_kwargs)
         dirs = self.dirs_from_pts(pts_cnl) # (N_rays, N_samples, 3)
         dirs = dirs.reshape(-1, 3) # (N_rays x N_samples, 3)
 
@@ -283,72 +185,6 @@ class IDHRenderer:
             'alpha': alpha,
             'weights': weights,
         }
-
-    def deform_points2(self, pts, motion_scale_Rs, motion_Ts, mweights_vol, dst_posevec,
-                      cnl_bbox_min_xyz, cnl_bbox_scale_xyz, iter_step, kick_in_iter):
-        
-        # calculate points_skeleton which transformed from observation space by rigid transformation
-        mvolme_output = self.sample_motion_fields(pts, 
-                                           motion_scale_Rs, 
-                                           motion_Ts, 
-                                           mweights_vol, 
-                                           cnl_bbox_min_xyz, 
-                                           cnl_bbox_scale_xyz)
-        # ori_shape = pts.shape
-        pts_mask = mvolme_output['fg_likelihood_mask']
-        pts_skel = mvolme_output['x_skel'] # (batch_size x n_sample, 3)
-        
-        non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < kick_in_iter else dst_posevec # (1, 69)
-        non_rigid_output = self.non_rigid_mlp(pos_xyz=pts_skel, condition_code=non_rigid_mlp_input)
-        
-        return non_rigid_output['xyz'], pts_mask # (batch_size x n_sample, 3)
-    
-    def sample_motion_fields(self, pts, motion_scale_Rs, motion_Ts, mweights_vol,
-                            cnl_bbox_min_xyz, cnl_bbox_scale_xyz, output_list=['x_skel', 'fg_likelihood_mask']):
-        orig_shape = list(pts.shape)
-        pts = pts.reshape(-1, 3) # (batch_size x n_samples, 3)
-
-        # remove BG channel
-        motion_weights = mweights_vol[:-1] 
-
-        weights_list = []
-        for i in range(motion_weights.size(0)):
-            pos = torch.matmul(motion_scale_Rs[i, :, :], pts.T).T + motion_Ts[i, :]
-            pos = (pos - cnl_bbox_min_xyz[None, :]) \
-                            * cnl_bbox_scale_xyz[None, :] - 1.0 
-            weights = F.grid_sample(input=motion_weights[None, i:i+1, :, :, :], 
-                                    grid=pos[None, None, None, :, :],           
-                                    padding_mode='zeros', align_corners=True)
-            weights = weights[0, 0, 0, 0, :, None] 
-            weights_list.append(weights)
-        backwarp_motion_weights = torch.cat(weights_list, dim=-1)
-        total_bases = backwarp_motion_weights.shape[-1]
-
-        backwarp_motion_weights_sum = torch.sum(backwarp_motion_weights, 
-                                                dim=-1, keepdim=True)
-        weighted_motion_fields = []
-        for i in range(total_bases):
-            pos = torch.matmul(motion_scale_Rs[i, :, :], pts.T).T + motion_Ts[i, :]
-            weighted_pos = backwarp_motion_weights[:, i:i+1] * pos
-            weighted_motion_fields.append(weighted_pos)
-        x_skel = torch.sum(
-                        torch.stack(weighted_motion_fields, dim=0), dim=0
-                        ) / backwarp_motion_weights_sum.clamp(min=0.0001)
-        fg_likelihood_mask = backwarp_motion_weights_sum
-
-        x_skel = x_skel.reshape(orig_shape[:2]+[3])
-        backwarp_motion_weights = \
-            backwarp_motion_weights.reshape(orig_shape[:2]+[total_bases])
-        fg_likelihood_mask = fg_likelihood_mask.reshape(orig_shape[:2]+[1])
-
-        results = {}
-        
-        if 'x_skel' in output_list: # [N_rays x N_samples, 3]
-            results['x_skel'] = x_skel
-        if 'fg_likelihood_mask' in output_list: # [N_rays x N_samples, 1]
-            results['fg_likelihood_mask'] = fg_likelihood_mask
-        
-        return results
     
     def render_core(self, 
                     rays_o,
@@ -389,7 +225,6 @@ class IDHRenderer:
         points_cnl, pts_W_pred, pts_W_sampled, transforms_fwd, transforms_bwd, = self.deform_points(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
         # pts_cnl, pts_mask = self.deform_points2(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
         
-        # dirs
         # dirs = self.dirs_from_pts(points_cnl) # (N_rays, N_samples, 3)
         dirs = self.deform_dirs(rays_d, points_cnl, transforms_bwd) # (N_rays, N_samples, 3)
         points_cnl = points_cnl.reshape(-1, 3)
@@ -403,16 +238,23 @@ class IDHRenderer:
             sdf_nn_output = self.sdf_network(points_cnl)
             delta_sdf = sdf_nn_output[:, :1]
             feature_vector = sdf_nn_output[:, 1:]
-            sdf = init_sdf + delta_sdf
+            sdf = delta_sdf
             gradients = compute_gradient(sdf, points_cnl)
+            distance_w_ = init_sdf - 0.05
+            distance_w = distance_w_.clone()
+            distance_w[distance_w_<=0] = 1.
+            distance_w[distance_w_> 0] = 0.
+            distance_w = distance_w.reshape(N_rays, N_samples) # TODO 这个分段函数可能效果不明显
         elif self.sdf_mode == 'hyper_net':
             feature_vector, sdf = sample_sdf(points_cnl, sdf_decoder, out_feature=True, **sdf_kwargs)
             gradients = compute_gradient(sdf, points_cnl)
         else:
             raise ValueError(f'The sdf_mode is {self.sdf_mode}, which is not valid.')
         
+        
         sampled_color = self.color_network(points_cnl, gradients, dirs, feature_vector).reshape(N_rays, N_samples, 3)
-
+        
+        
         true_cos = (dirs * gradients).sum(-1, keepdim=True)
 
         inv_s = self.deviation_network(torch.zeros([1, 3]).to(points_cnl))[:, :1].clip(1e-6, 1e6)           # Single parameter
@@ -442,13 +284,12 @@ class IDHRenderer:
         # Render with background
         if background_alpha is not None:
             alpha = alpha * inside_sphere + background_alpha[:, :N_samples] * (1.0 - inside_sphere)
-            alpha = alpha * pts_mask[..., 0]
             alpha = torch.cat([alpha, background_alpha[:, N_samples:]], dim=-1)
             
             sampled_color = sampled_color * inside_sphere[:, :, None] +\
                             background_sampled_color[:, :N_samples] * (1.0 - inside_sphere)[:, :, None]
             sampled_color = torch.cat([sampled_color, background_sampled_color[:, N_samples:]], dim=1)
-
+        alpha = alpha * distance_w
         weights = alpha * torch.cumprod(torch.cat([torch.ones([N_rays, 1]).to(points_cnl), 1. - alpha + 1e-7], -1), -1)[:, :-1]
         weights_sum = weights.sum(dim=-1, keepdim=True)
 
@@ -476,105 +317,6 @@ class IDHRenderer:
             "pts_W_sampled": pts_W_sampled
         }
     
-    # def render_core(self, 
-    #                 rays_o,
-    #                 rays_d,
-    #                 z_vals,
-    #                 sdf_decoder,
-    #                 deform_kwargs,
-    #                 sdf_kwargs,
-    #                 background_color,
-    #                 background_alpha,
-    #                 background_sampled_color,
-    #                 cos_anneal_ratio):
-    #     """render rgb and normal from sdf
-
-    #     Args:
-    #         points_obs (Tensor): (batch_size, N_rays, N_samples, 3)
-    #         points_cnl (Tensor): (batch_size, N_rays, N_samples, 3)
-    #         t (Tensor): (batch_size, N_rays, N_samples, 1)
-    #         cos_anneal_ratio (float): _description_
-
-    #     Returns:
-    #         _type_: _description_
-    #     """
-    #     N_rays, N_samples = z_vals.shape
-    #     device = z_vals.device
-        
-    #     # Section length
-    #     dists = torch.zeros_like(z_vals)
-    #     dists[..., :-1] = z_vals[..., 1:] - z_vals[..., :-1]
-    #     dists[..., -1:] = dists[..., :-1].mean(-1, keepdim=True)
-    #     mid_z_vals = z_vals + dists * 0.5
-    #     mid_dists = torch.zeros_like(mid_z_vals)
-    #     mid_dists[..., :-1] = mid_z_vals[..., 1:] - mid_z_vals[..., :-1]
-    #     mid_dists[..., -1:] = mid_dists[..., :-1].mean(-1, keepdim=True)
-        
-    #     # section midpoints
-    #     points_obs = rays_o[..., None, :] + rays_d[..., None, :] * mid_z_vals[..., None]  # (N_rays, N_samples, 3)
-    #     points_cnl, pts_W_pred, pts_W_sampled = self.deform_points(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
-    #     # dirs
-    #     dirs = self.dirs_from_pts(points_cnl) # (N_rays, N_samples, 3)
-    #     points_cnl = points_cnl.reshape(-1, 3)
-    #     dirs = dirs.reshape(-1, 3)
-        
-    #     # nn forward
-    #     if self.sdf_mode == 'mlp':
-    #         init_sdf = sample_sdf_from_grid(points_cnl, **sdf_kwargs)
-    #         sdf_nn_output = self.sdf_network(points_cnl)
-    #         delta_sdf = sdf = sdf_nn_output[:, :1]
-    #         feature_vector = sdf_nn_output[:, 1:]
-    #         sdf = init_sdf + delta_sdf
-    #         gradients = compute_gradient(sdf, points_cnl)
-    #     elif self.sdf_mode == 'hyper_net':
-    #         feature_vector, sdf = sample_sdf(points_cnl, sdf_decoder, out_feature=True, **sdf_kwargs)
-    #         gradients = compute_gradient(sdf, points_cnl)
-    #     else:
-    #         raise ValueError(f'The sdf_mode is {self.sdf_mode}, which is not valid.')
-        
-    #     sampled_color = self.color_network(points_cnl, gradients, dirs, feature_vector).reshape(N_rays, N_samples, 3)
-        
-    #     # sdf
-    #     beta = self.deviation_network(sdf).clip(1e-6, 1e3).detach()
-    #     inv_beta = torch.reciprocal(beta)
-    #     density = F.relu(inv_beta * (0.5 + 0.5 * torch.sign(-sdf) * (1 - torch.exp(-torch.abs(-sdf) * inv_beta))))
-    #     alpha = 1.0 - torch.exp(-density * mid_dists.reshape(-1,1)).reshape(N_rays, N_samples).clip(0.0, 1.0)
-        
-    #     weights = alpha * torch.cumprod(torch.cat([torch.ones([N_rays, 1], device=device), 1. - alpha + 1e-7], -1), -1)[:, :-1]
-    #     color = (sampled_color * weights[:, :, None]).sum(dim=1)
-
-    #     # sigma
-    #     pts_norm = torch.linalg.norm(points_cnl, ord=2, dim=-1, keepdim=True).reshape(N_rays, N_samples)
-    #     relax_inside_sphere = (pts_norm < 1.2).float().detach()
-
-    #     # Eikonal loss
-    #     gradient_error = (torch.linalg.norm(gradients.reshape(N_rays, N_samples, 3), ord=2,
-    #                                         dim=-1) - 1.0) ** 2
-    #     gradient_error = (relax_inside_sphere * gradient_error).sum() / (relax_inside_sphere.sum() + 1e-5)
-
-    #     return {
-    #         'color': color,
-    #         'sdf': sdf,
-    #         'dists': dists,
-    #         'gradients': gradients.reshape(N_rays, N_samples, 3),
-    #         's_val': 1.0 / inv_beta,
-    #         'mid_z_vals': mid_z_vals,
-    #         'weights': weights,
-    #         'gradient_error': gradient_error,
-    #         'pts_W_pred': pts_W_pred,
-    #         "pts_W_sampled": pts_W_sampled
-    #     }
-    
-    def motion_basis(self, dst_Rs, dst_Ts, cnl_gtfms, mweights_priors, tjoints):
-        # calculate motion basis
-        _, motion_scale_Rs, motion_Ts = self.motion_basis_computer(dst_Rs, dst_Ts, cnl_gtfms) # (B, 24, 3, 3) (B, 24, 3)
-        # decode motion weight volume
-        mweights_vol = self.mweight_vol_decoder(motion_weights_priors=mweights_priors) # (B, 25, 32, 32, 32)
-
-        motion_scale_Rs = motion_scale_Rs.squeeze() # remove batch dim
-        motion_Ts = motion_Ts.squeeze()
-        mweights_vol = mweights_vol.squeeze()
-        return motion_scale_Rs, motion_Ts, mweights_vol
     
     def render(self, data, iter_step, cos_anneal_ratio=0.0, sdf_decoder=None):
         # unpack data
@@ -582,7 +324,7 @@ class IDHRenderer:
         batch_rays = data['batch_rays'].squeeze() # (N_rays, 12)
         rays_o = batch_rays[..., 0:3] # (N_rays, 3)
         rays_d = batch_rays[..., 3:6] # (N_rays, 3)
-        if Z_VALS:
+        if self.inner_sampling:
             z_vals = data['z_vals'].squeeze() # (N_rays, N_samples)
             near, far = z_vals[:, :1], z_vals[:, -1:]
         else:
@@ -600,13 +342,12 @@ class IDHRenderer:
         skinning_weights = data['skinning_weights'] # (batch_size, 6890, 24)
         cnl_bbmin = data['smpl_sdf']['bbmin']
         cnl_bbmax = data['smpl_sdf']['bbmax']
-        cnl_padding = data['smpl_sdf']['padding']
-        cnl_grid_sdf = data['smpl_sdf']['grid_sdf']
+        cnl_grid_sdf = data['smpl_sdf']['sdf_grid']
         ## render
         background_color = data['background_color'][0] # (3)
         
         N_rays, _ = batch_rays.shape
-        if Z_VALS:
+        if self.inner_sampling:
             N_samples = z_vals.size(-1)
         else:
             N_samples = self.n_samples
@@ -620,7 +361,6 @@ class IDHRenderer:
             "cnl_bbmin": cnl_bbmin,
             "cnl_bbmax": cnl_bbmax,
             "cnl_grid_sdf": cnl_grid_sdf,
-            "cnl_padding": cnl_padding,
         }
         deform_kwargs={
             "skinning_weights": skinning_weights,
@@ -648,7 +388,7 @@ class IDHRenderer:
             points_newa = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0]
             trimesh.Trimesh(points_newa[0].detach().cpu().numpy()).export("tvpose_vertices_from_tpose.obj")
             
-        if Z_VALS:
+        if self.inner_sampling:
             N_extra = N_samples // 8
             z_vals_dist = (z_vals[:,-1:] - z_vals[:, :1])/(N_samples-1) # (N_rays, 1)
             extra_z_vals_near = torch.tile(-z_vals_dist, [1, N_extra])
@@ -685,32 +425,6 @@ class IDHRenderer:
         
         if N_outside > 0:
             z_vals_outside = far / torch.flip(z_vals_outside, dims=[-1]) + 1.0 / N_samples # (N_rays, N_outside)
-        
-        # Up sample
-        if self.n_importance > 0:
-            with torch.no_grad():
-                pts_obs = rays_o[:, None, :] + rays_d[:, None, :] * z_vals[..., None] # (N_rays, N_samples, 3)
-                # points deformation
-                # pts_cnl, _, _ = self.deform_points(pts_obs, **deform_kwargs) # (N_rays, N_samples, 3)
-                pts_cnl, pts_mask = self.deform_points2(pts_obs, **deform_kwargs)
-                sdf = self.sdf_network.sdf(pts_cnl.reshape(-1, 3)).reshape(N_rays, N_samples)
-
-                for i in range(self.up_sample_steps):
-                    new_z_vals = self.up_sample(rays_o,
-                                                rays_d,
-                                                z_vals,
-                                                sdf,
-                                                self.n_importance // self.up_sample_steps,
-                                                64 * 2**i)
-                    z_vals, sdf = self.cat_z_vals(rays_o,
-                                                  rays_d,
-                                                  z_vals,
-                                                  new_z_vals,
-                                                  sdf,
-                                                  deform_kwargs,
-                                                  last=(i + 1 == self.up_sample_steps))
-
-            N_samples = N_samples + self.n_importance
         
         # Background model
         background_alpha = None

@@ -5,8 +5,9 @@ import point_cloud_utils as pcu
 import pytorch3d
 from scipy.spatial.transform import Rotation
 from libs.utils.MCAcc import GridSamplerMine3dFunction
+from libs.utils.grid_sample_3d import grid_sample_3d
 
-def sample_sdf_from_grid(points, cnl_grid_sdf, cnl_bbmin, cnl_bbmax, cnl_padding):
+def sample_sdf_from_grid(points, cnl_grid_sdf, cnl_bbmin, cnl_bbmax):
     ori_shape = points.shape
     if len(points.shape) == 2:
         points = points.unsqueeze(0)
@@ -14,30 +15,33 @@ def sample_sdf_from_grid(points, cnl_grid_sdf, cnl_bbmin, cnl_bbmax, cnl_padding
         cnl_grid_sdf = cnl_grid_sdf.unsqueeze(0)
     
     B, N, _ = points.shape
-    points = (points - cnl_bbmin) / (cnl_bbmax - cnl_bbmin)
+    points = (points - cnl_bbmin) / (cnl_bbmax - cnl_bbmin + 1e-10)
+    points = (points - 0.5) * 2
     
-    points = points.view(B, N, 1, 1, 3) # [N, D, H, W, 3]
+    points = points.view(B, N, 1, 1, 3)
     points_sampled = points.clone()
     points_sampled[..., 0] = points[..., 2]
     points_sampled[..., 1] = points[..., 1]
     points_sampled[..., 2] = points[..., 0]
-    # sdf_sampled = torch.nn.functional.grid_sample(sdf_grid, points_sampled, align_corners=False) # [N, C, D, H, W]
-    sdf_sampled = GridSamplerMine3dFunction.apply(cnl_grid_sdf, points_sampled)
+    sdf_sampled = grid_sample_3d(cnl_grid_sdf, points_sampled)
+    # sdf_sampled = torch.nn.functional.grid_sample(cnl_grid_sdf, points_sampled)
+    # sdf_sampled = GridSamplerMine3dFunction.apply(cnl_grid_sdf, points_sampled)
+    sdf_sampled = sdf_sampled / 2. * (cnl_bbmax - cnl_bbmin)
     return sdf_sampled.view(list(ori_shape)[:-1]+[1])
 
 def sample_sdf(points, sdf_model, cnl_grid_sdf=None, out_feature=False, **kwargs):
-    delta_sdf = 0.
     if cnl_grid_sdf is not None:
-        delta_sdf = sample_sdf_from_grid(points, cnl_grid_sdf, **kwargs)
-    
+        init_sdf = sample_sdf_from_grid(points, cnl_grid_sdf, **kwargs)
+    else:
+        init_sdf = 0.
+        
     if not out_feature:
-        init_sdf = sdf_model(points)
+        delta_sdf = sdf_model(points)
         return init_sdf + delta_sdf
     else:
         feature_vecs = sdf_model[:-1](points).squeeze(0)
-        init_sdf = sdf_model[-1](feature_vecs).squeeze(0) 
-        init_sdf = init_sdf * 0.5
-        return feature_vecs, init_sdf
+        delta_sdf = sdf_model[-1](feature_vecs).squeeze(0) 
+        return feature_vecs, init_sdf + delta_sdf
 
 def augm_rots(roll_range=90, pitch_range=90, yaw_range=90):
     """ Get augmentation for rotation matrices.

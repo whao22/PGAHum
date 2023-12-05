@@ -10,6 +10,7 @@ dataset:
   multi_view: True
   use_smpl_sdf: True
   bbox_margin: 0.05
+  volume_size: 256
 
 output:
   dir: data/data_prepared

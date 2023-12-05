@@ -19,7 +19,6 @@ from libs.utils.camera_utils import \
     get_rays_from_KRT, \
     rays_intersect_3d_bbox
 
-Z_VALS = True
 
 class ZJUMoCapDataset(torch.utils.data.Dataset):
     def __init__(self, 
@@ -37,7 +36,8 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
                  patch_size=32,
                  N_patches=1,
                  sample_subject_ratio=0.8,
-                 N_samples=64):
+                 N_samples=64,
+                 inner_sampling=False):
         assert len(subjects) == 1, 'SINGLE PERSON! Please make sure the length of subjects list is one.'
         assert len(views) == 1, 'MONOCULAR! Please make sure the length of views list is one.'
         
@@ -50,6 +50,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         self.image_dir = os.path.join(self.dataset_path, 'images')
         self.N_samples = N_samples
         self.volume_size = 64
+        self.inner_sampling = inner_sampling
         
         # flags
         self.bgcolor = np.array(backgroung_color, dtype=np.float32) if backgroung_color is not None else (np.random.rand(3) * 255).astype(np.float32)
@@ -271,14 +272,13 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
             'smpl_sdf' :{
                 'bbmin': self.smpl_sdf['bbmin'].astype(np.float32),
                 'bbmax': self.smpl_sdf['bbmax'].astype(np.float32),
-                'padding': self.smpl_sdf['padding'],
-                'grid_sdf': self.smpl_sdf['grid_sdf'].astype(np.float32),
+                'sdf_grid': self.smpl_sdf['sdf_grid'].astype(np.float32),
             },
             'geo_latent_code_idx': idx
             # 'rots': pose_rot.astype(np.float32), # (24, 9), pose rotation, where the root rotation is identity
             # 'Jtrs': Jtr_norm.astype(np.float32), # (24 3), T-pose joint points
         }
-        if Z_VALS:
+        if self.inner_sampling:
             z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
             results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = inter_mask
@@ -395,8 +395,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
             'smpl_sdf' :{
                 'bbmin': self.smpl_sdf['bbmin'].astype(np.float32),
                 'bbmax': self.smpl_sdf['bbmax'].astype(np.float32),
-                'padding': self.smpl_sdf['padding'],
-                'grid_sdf': self.smpl_sdf['grid_sdf'].astype(np.float32),
+                'sdf_grid': self.smpl_sdf['sdf_grid'].astype(np.float32),
             },
             'geo_latent_code_idx': idx
         }
@@ -406,7 +405,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
                 'patch_masks': patch_masks,
                 'patch_div_indices': patch_div_indices,
                 })
-        if Z_VALS:
+        if self.inner_sampling:
             z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
             results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = z_vals.astype(np.float32)
