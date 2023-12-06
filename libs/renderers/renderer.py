@@ -6,7 +6,7 @@ import logging
 import mcubes
 import pytorch3d.ops as ops
 from collections import OrderedDict
-
+from libs.embeders.hannw_fourier import get_embedder
 from libs.utils.general_utils import normalize_canonical_points, hierarchical_softmax, sample_sdf, sample_sdf_from_grid
 
 
@@ -103,7 +103,13 @@ class IDHRenderer:
                  total_bones,
                  sdf_mode,
                  inner_sampling,
-                 **kwargs):
+                 non_rigid_multries,
+                 N_iter_backward,
+                 non_rigid_kick_in_iter,
+                 non_rigid_full_band_iter,
+                 pose_refine_kick_in_iter,
+                 use_init_sdf,
+                 sdf_threshold):
         self.pose_decoder = pose_decoder
         self.motion_basis_computer = motion_basis_computer
         self.offset_net = offset_net
@@ -122,10 +128,14 @@ class IDHRenderer:
         self.total_bones = total_bones
         self.sdf_mode = sdf_mode
         self.inner_sampling = inner_sampling
-        self.N_iter_backward = kwargs.get('N_iter_backward', 1)
-        self.non_rigid_kick_in_iter = kwargs.get('non_rigid_kick_in_iter', 5000)
-        self.pose_refine_kick_in_iter = kwargs.get('pose_refine_kick_in_iter', 5000)
-        
+        self.non_rigid_multries = non_rigid_multries
+        self.N_iter_backward = N_iter_backward
+        self.use_init_sdf = use_init_sdf
+        self.non_rigid_kick_in_iter = non_rigid_kick_in_iter
+        self.non_rigid_full_band_iter = non_rigid_full_band_iter
+        self.pose_refine_kick_in_iter = pose_refine_kick_in_iter
+        self.sdf_threshold = sdf_threshold
+    
     def dirs_from_pts(self, pts):
         """calculate direction of points by next points minus current points
 
@@ -161,7 +171,7 @@ class IDHRenderer:
 
         # Section midpoints
         pts_obs = rays_o[:, None, :] + rays_d[:, None, :] * mid_z_vals[..., :, None]  # (N_rays, N_samples, 3)
-        pts_cnl, _, _ = self.deform_points(pts_obs, **deform_kwargs) # (N_rays, N_samples, 3)
+        pts_cnl, _, _, _, _ = self.deform_points(pts_obs, **deform_kwargs) # (N_rays, N_samples, 3)
         # pts_cnl, pts_mask = self.deform_points2(pts_obs, **deform_kwargs)
         dirs = self.dirs_from_pts(pts_cnl) # (N_rays, N_samples, 3)
         dirs = dirs.reshape(-1, 3) # (N_rays x N_samples, 3)
@@ -222,7 +232,7 @@ class IDHRenderer:
         
         # section midpoints
         points_obs = rays_o[..., None, :] + rays_d[..., None, :] * mid_z_vals[..., None]  # (N_rays, N_samples, 3)
-        points_cnl, pts_W_pred, pts_W_sampled, transforms_fwd, transforms_bwd, = self.deform_points(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
+        points_cnl, pts_W_pred, pts_W_sampled, _, transforms_bwd, = self.deform_points(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
         # pts_cnl, pts_mask = self.deform_points2(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
         
         # dirs = self.dirs_from_pts(points_cnl) # (N_rays, N_samples, 3)
@@ -238,9 +248,12 @@ class IDHRenderer:
             sdf_nn_output = self.sdf_network(points_cnl)
             delta_sdf = sdf_nn_output[:, :1]
             feature_vector = sdf_nn_output[:, 1:]
-            sdf = delta_sdf
+            if self.use_init_sdf:
+                sdf = init_sdf + delta_sdf
+            else:
+                sdf = delta_sdf
             gradients = compute_gradient(sdf, points_cnl)
-            distance_w_ = init_sdf - 0.05
+            distance_w_ = init_sdf.clone().detach() - self.sdf_threshold
             distance_w = distance_w_.clone()
             distance_w[distance_w_<=0] = 1.
             distance_w[distance_w_> 0] = 0.
@@ -356,6 +369,12 @@ class IDHRenderer:
         # dst_gtfms (batch_size, 24, 4, 4)
         dst_gtfms = self.get_dst_gtfms(iter_step, self.pose_refine_kick_in_iter, dst_Rs, dst_Ts, dst_posevec, self.total_bones, cnl_gtfms, tjoints, gtfs_02v)
         
+        # get_non_rigid_embeder
+        non_rigid_pos_embed_fn, _ = get_embedder(multires=self.non_rigid_multries, 
+                                                 iter_val=iter_step,
+                                                 full_band_iter=self.non_rigid_full_band_iter,
+                                                 kick_in_iter=self.non_rigid_kick_in_iter)
+        
         # pack required data which used in deforming points
         sdf_kwargs={
             "cnl_bbmin": cnl_bbmin,
@@ -367,6 +386,7 @@ class IDHRenderer:
             "dst_gtfms": dst_gtfms,
             "dst_posevec": dst_posevec,
             "dst_vertices": dst_vertices,
+            "non_rigid_pos_embed_fn": non_rigid_pos_embed_fn,
             "iter_step": iter_step,
             "non_rigid_kick_in_iter": self.non_rigid_kick_in_iter,
         }
@@ -480,7 +500,7 @@ class IDHRenderer:
         
         return dst_Rs, dst_Ts
     
-    def deform_points(self, points, dst_posevec=None, iter_step=1, non_rigid_kick_in_iter=1000, dst_gtfms=None, **deform_kwargs):
+    def deform_points(self, points, dst_posevec=None, iter_step=1, non_rigid_kick_in_iter=1000, dst_gtfms=None, non_rigid_pos_embed_fn=None, **deform_kwargs):
         """deform the points in observation space into cononical space via Itertative Backward Deformation.
 
         Args:
@@ -494,20 +514,22 @@ class IDHRenderer:
         """
         N_rays, N_samples, _ = points.shape
         points = points.reshape(1, -1, 3) # # (1, N_points, 3)
-        points_skl, transforms_fwd, transforms_bwd, pts_W_sampled = self.backward_lbs_knn(points, dst_gtfms, **deform_kwargs) # (N_points, 3)
-        non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < non_rigid_kick_in_iter else dst_posevec # (1, 69)
-        points_cnl = self.non_rigid_mlp(points_skl, non_rigid_mlp_input)['xyz']
+        points_cnl, transforms_fwd, transforms_bwd, pts_W_sampled = self.backward_lbs_knn(points, dst_gtfms, **deform_kwargs) # (N_points, 3)
         
         # iterative backward deformation
         for i in range(self.N_iter_backward):
             pts_W_pred = self.query_weights(points_cnl) # (1, N_points, 24)
             x_bar, T = self.backward_lbs_nn(points, pts_W_pred, dst_gtfms, inverse=False) # (1, N_points, 3)
-            non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < non_rigid_kick_in_iter else dst_posevec # (1, 69)
-            points_cnl = self.non_rigid_mlp(x_bar.reshape(-1, 3), non_rigid_mlp_input)['xyz']
+            # non_rigid_embed_xyz = non_rigid_pos_embed_fn(x_bar)
+            # points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=x_bar.reshape(-1, 3), condition_code=non_rigid_mlp_input)['xyz']
         
         if self.N_iter_backward == 0:
             pts_W_pred = self.query_weights(points_cnl)
-            
+        
+        non_rigid_embed_xyz = non_rigid_pos_embed_fn(points_skl)
+        non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < non_rigid_kick_in_iter else dst_posevec # (1, 69)
+        points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=points_skl, condition_code=non_rigid_mlp_input)['xyz']
+        
         return points_cnl.reshape(N_rays, N_samples, 3), pts_W_pred, pts_W_sampled, transforms_fwd, transforms_bwd,
 
     def query_weights(self, points):

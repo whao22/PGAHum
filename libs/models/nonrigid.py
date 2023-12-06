@@ -1,24 +1,18 @@
 import torch
 import torch.nn as nn
-from libs.embeders.hannw_fourier import get_embedder
 from libs.utils.network_utils import initseq
 
 
 class NonRigidMotionMLP(nn.Module):
     def __init__(self,
+                 pos_embed_size=3,
                  condition_code_size=69,
                  mlp_width=128,
                  mlp_depth=6,
-                 multires=6,
-                 i_embed=0,
-                 kick_in_iter=10000,
-                 full_band_iter=5000,
                  skips=None,
                  **kwargs):
         super(NonRigidMotionMLP, self).__init__()
         self.progress = torch.nn.Parameter(torch.tensor(0.), requires_grad=False)  # use Parameter so it could be checkpointed
-        non_rigid_pos_embed_fn, pos_embed_size = get_embedder(multires, i_embed, kick_in_iter, full_band_iter)
-        self.non_rigid_pos_embed_fn = non_rigid_pos_embed_fn
         self.skips = [4] if skips is None else skips
         
         block_mlps = [nn.Linear(pos_embed_size+condition_code_size, 
@@ -53,9 +47,7 @@ class NonRigidMotionMLP(nn.Module):
         input_size = input_data.shape[1]
         return input_data.expand((total_elem, input_size))
         
-    def forward(self, pos_xyz, condition_code, viewdirs=None):
-        pos_xyz=pos_xyz.view(-1,3)
-        pos_embed = self.non_rigid_pos_embed_fn(pos_xyz)
+    def forward(self, pos_embed, pos_xyz, condition_code, viewdirs=None):
         condition_code = self.expand_input(condition_code, pos_embed.size(0))
         h = torch.cat([condition_code, pos_embed], dim=-1)
         if viewdirs is not None:

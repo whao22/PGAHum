@@ -82,21 +82,26 @@ class HFAvatar(pl.LightningModule):
         self.sdf_decoder = sdf_decoder
         self.sdf_network = sdf_network
         self.skinning_model = skinning_model
+        
         # Renderer
         self.latent = nn.Embedding(N_frames, 128)
-        self.renderer = IDHRenderer(self.pose_decoder,
-                                    self.motion_basis_computer,
-                                    self.offset_net,
-                                    self.skinning_model,
-                                    self.non_rigid_mlp,
-                                    self.nerf_outside,
-                                    self.sdf_network,
-                                    self.deviation_network,
-                                    self.color_network,
+        self.renderer = IDHRenderer(pose_decoder=self.pose_decoder,
+                                    motion_basis_computer=self.motion_basis_computer,
+                                    offset_net=self.offset_net,
+                                    skinning_model=self.skinning_model,
+                                    non_rigid_mlp=self.non_rigid_mlp,
+                                    nerf=self.nerf_outside,
+                                    sdf_network=self.sdf_network,
+                                    deviation_network=self.deviation_network,
+                                    color_network=self.color_network,
                                     total_bones=self.total_bones,
                                     sdf_mode = self.sdf_mode,
                                     inner_sampling = self.inner_sampling,
-                                    **self.conf['model.neus_renderer'])      
+                                    non_rigid_multries = conf.model.non_rigid.multires,
+                                    non_rigid_kick_in_iter= conf.model.non_rigid.kick_in_iter,
+                                    non_rigid_full_band_iter=conf.model.non_rigid.full_band_iter,
+                                    pose_refine_kick_in_iter=conf.model.pose_refiner.kick_in_iter,
+                                    **self.conf.model.neus_renderer)
         
     def get_cos_anneal_ratio(self):
         if self.anneal_end == 0.0:

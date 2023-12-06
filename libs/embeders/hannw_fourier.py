@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 
 
-
 class Embedder:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -45,7 +44,7 @@ class Embedder:
         return torch.cat([fn(inputs) for fn in self.embed_fns], -1)
 
 
-def get_embedder(multires, iter_val, kick_in_iter, full_band_iter, is_identity=0):
+def get_embedder(multires, iter_val, is_identity=0, kick_in_iter=10000, full_band_iter=50000):
     if is_identity == -1:
         return nn.Identity(), 3
     

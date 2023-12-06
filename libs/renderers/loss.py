@@ -3,6 +3,14 @@ import lpips
 from torch import nn
 from torch.nn import functional as F
 
+def set_requires_grad(nets, requires_grad=False):
+    if not isinstance(nets, list):
+        nets = [nets]
+    for net in nets:
+        if net is not None:
+            for param in net.parameters():
+                param.requires_grad = requires_grad
+
 class IDHRLoss(nn.Module):
     ''' Loss class for Implicit Differentiable Human Renderer (IDHR) '''
 
@@ -47,6 +55,10 @@ class IDHRLoss(nn.Module):
         
         if self.perceptual_weight > 0.:
             self.p_loss = lpips.LPIPS(net='vgg')
+            set_requires_grad(self.p_loss, requires_grad=False)
+    
+    def scale_for_lpips(self, image_tensor):
+        return image_tensor * 2. - 1.
 
     def get_rgb_loss(self, color_pre, color_gt):
         rgb_loss = self.l1_loss(color_pre, color_gt)
@@ -70,9 +82,9 @@ class IDHRLoss(nn.Module):
         return patch_imgs, target_patches
     
     def get_perceptual_loss(self, color_pre, color_gt):
-        pred_patch = color_pre.permute(0, 3, 1, 2)
-        gt_patch = color_gt.permute(0, 3, 1, 2)
-        perceptual_loss = self.p_loss(pred_patch, gt_patch, normalize=True).mean()
+        pred_patch = self.scale_for_lpips(color_pre.permute(0, 3, 1, 2))
+        gt_patch = self.scale_for_lpips(color_gt.permute(0, 3, 1, 2))
+        perceptual_loss = self.p_loss(pred_patch, gt_patch).mean()
         return perceptual_loss
 
     def get_skinning_weights_loss(self, pts_w_pre, pts_w_gt):

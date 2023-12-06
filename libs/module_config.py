@@ -6,6 +6,7 @@ from libs.models.deform import Deformer
 import torch
 from collections import OrderedDict
 
+from libs.embeders.hannw_fourier import get_embedder
 from libs.models.pose_refine import BodyPoseRefiner
 from libs.models.fields_high import RenderingNetwork, SDFNetwork, SingleVarianceNetwork, NeRF
 from libs.models.nonrigid import NonRigidMotionMLP
@@ -67,7 +68,11 @@ def get_model(conf, base_exp_dir, init_weight=True):
     pose_decoder = BodyPoseRefiner(total_bones=total_bones, **conf['model.pose_refiner'])
     motion_basis_computer = MotionBasisComputer(total_bones)
     offset_net = Offset(**conf['model.offset_net'])
-    non_rigid_mlp = NonRigidMotionMLP(**conf['model.non_rigid'])
+    _, non_rigid_pos_embed_size = get_embedder(multires=conf.model.non_rigid.multires, 
+                                               iter_val=conf.model.non_rigid.i_embed,
+                                               kick_in_iter=conf.model.non_rigid.kick_in_iter,
+                                               full_band_iter=conf.model.non_rigid.full_band_iter)
+    non_rigid_mlp = NonRigidMotionMLP(**conf['model.non_rigid'], pos_embed_size=non_rigid_pos_embed_size)
     nerf_outside = NeRF(**conf['model.nerf'])
     deviation_network = SingleVarianceNetwork(**conf['model.variance_network'])
     color_network = RenderingNetwork(**conf['model.rendering_network'])
@@ -110,7 +115,8 @@ def get_model(conf, base_exp_dir, init_weight=True):
                     sdf_network=sdf_network,
                     sdf_decoder=sdf_decoder, 
                     skinning_model=skinning_model,
-                    N_frames=N_frames,)
+                    N_frames=N_frames,
+                    )
 
 # Datasets
 def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=None, end_frame=None):
