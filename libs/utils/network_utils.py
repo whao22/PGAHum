@@ -138,7 +138,7 @@ class MotionBasisComputer(nn.Module):
         batch_size, TOTAL_BONES, _ = tjoints.shape
         dst_gtfms = torch.zeros_like(cnl_gtfms)
 
-        local_Gs = self._construct_G(dst_Rs, dst_Ts)    
+        local_Gs = self._construct_G(dst_Rs, dst_Ts) 
         dst_gtfms[:, 0, :, :] = local_Gs[:, 0, :, :]
 
         for i in range(1, self.total_bones):

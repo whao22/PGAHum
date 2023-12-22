@@ -164,6 +164,8 @@ class HFAvatar(pl.LightningModule):
         self.log('loss_pips', loss_results['loss_pips'], on_step=True, logger=True, batch_size=self.batch_size)
         self.log('loss_skinning_weights', loss_results['loss_skinning_weights'], on_step=True, logger=True, batch_size=self.batch_size)
         self.log('loss_params', loss_results['loss_params'], on_step=True, logger=True, batch_size=self.batch_size)
+        self.log('loss_pose_refine', loss_results['loss_pose_refine'], on_step=True, logger=True, batch_size=self.batch_size)
+        
         self.log('loss', loss_results['loss'], on_step=True, logger=True, batch_size=self.batch_size)
         
         return loss_results['loss']

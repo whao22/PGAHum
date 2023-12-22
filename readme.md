@@ -61,10 +61,6 @@ bash scripts/run_377_neus.sh
 bash scripts/run_377_neus.sh
 ```
 
-## Log
-
-1. 代码可以跑通了，但是结果还不好，需要调
-
 ## Citation
 
 ```

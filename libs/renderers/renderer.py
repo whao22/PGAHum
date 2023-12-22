@@ -7,12 +7,18 @@ import mcubes
 import pytorch3d.ops as ops
 from collections import OrderedDict
 from libs.embeders.hannw_fourier import get_embedder
+from libs.utils.FastMinv.fast_matrix_inv import FastDiff4x4MinvFunction
 from libs.utils.general_utils import normalize_canonical_points, hierarchical_softmax, sample_sdf, sample_sdf_from_grid
+from time import time
 
+SMPL_PARENT = {
+    1: 0, 2: 0, 3: 0, 4: 1, 5: 2, 6: 3, 7: 4, 8: 5, 9: 6, 10: 7, 
+    11: 8, 12: 9, 13: 9, 14: 9, 15: 12, 16: 13, 17: 14, 18: 16, 19: 17, 20: 18, 
+    21: 19, 22: 20, 23: 21}
 
 def compute_gradient(y, x, grad_outputs=None, retain_graph=True, create_graph=True):
     if grad_outputs is None:
-        grad_outputs = torch.ones_like(y)
+        grad_outputs = torch.ones_like(y, requires_grad=False, device=y.device)
     grad = torch.autograd.grad(y, [x], grad_outputs=grad_outputs, retain_graph=retain_graph, create_graph=create_graph)[0]
     return grad
 
@@ -235,15 +241,18 @@ class IDHRenderer:
         points_cnl, pts_W_pred, pts_W_sampled, _, transforms_bwd, = self.deform_points(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
         # pts_cnl, pts_mask = self.deform_points2(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
         
-        # dirs = self.dirs_from_pts(points_cnl) # (N_rays, N_samples, 3)
-        dirs = self.deform_dirs(rays_d, points_cnl, transforms_bwd) # (N_rays, N_samples, 3)
+        dirs = self.dirs_from_pts(points_cnl) # (N_rays, N_samples, 3)
+        # dirs = self.deform_dirs(rays_d, points_cnl, transforms_bwd) # (N_rays, N_samples, 3)
         points_cnl = points_cnl.reshape(-1, 3)
         dirs = dirs.reshape(-1, 3)
         
         s = self.deviation_network(torch.zeros([1]).to(points_cnl)).clip(1e-6, 1e3).detach()
         
         # nn forward
-        if self.sdf_mode == 'mlp':
+        if self.sdf_mode == 'hyper_net':
+            feature_vector, sdf = sample_sdf(points_cnl, sdf_decoder, out_feature=True, **sdf_kwargs)
+            gradients = compute_gradient(sdf, points_cnl)
+        elif self.sdf_mode in ['mlp','tri']:
             init_sdf = sample_sdf_from_grid(points_cnl, **sdf_kwargs)
             sdf_nn_output = self.sdf_network(points_cnl)
             delta_sdf = sdf_nn_output[:, :1]
@@ -258,9 +267,6 @@ class IDHRenderer:
             distance_w[distance_w_<=0] = 1.
             distance_w[distance_w_> 0] = 0.
             distance_w = distance_w.reshape(N_rays, N_samples) # TODO 这个分段函数可能效果不明显
-        elif self.sdf_mode == 'hyper_net':
-            feature_vector, sdf = sample_sdf(points_cnl, sdf_decoder, out_feature=True, **sdf_kwargs)
-            gradients = compute_gradient(sdf, points_cnl)
         else:
             raise ValueError(f'The sdf_mode is {self.sdf_mode}, which is not valid.')
         
@@ -289,13 +295,12 @@ class IDHRenderer:
         cdf = torch.sigmoid(sdf * inv_s)
         e = inv_s * (1 - cdf) * (-iter_cos) * mid_dists.reshape(-1, 1)
         alpha = (1 - torch.exp(-e)).reshape(N_rays, N_samples).clip(0.0, 1.0)
-
-        pts_norm = torch.linalg.norm(points_cnl, ord=2, dim=-1, keepdim=True).reshape(N_rays, N_samples)
-        inside_sphere = (pts_norm < 1.0).float().detach()
-        relax_inside_sphere = (pts_norm < 1.2).float().detach()
-
+        
         # Render with background
         if background_alpha is not None:
+            pts_norm = torch.linalg.norm(points_cnl, ord=2, dim=-1, keepdim=True).reshape(N_rays, N_samples)
+            inside_sphere = (pts_norm < 1.0).float().detach()
+            relax_inside_sphere = (pts_norm < 1.2).float().detach()
             alpha = alpha * inside_sphere + background_alpha[:, :N_samples] * (1.0 - inside_sphere)
             alpha = torch.cat([alpha, background_alpha[:, N_samples:]], dim=-1)
             
@@ -313,7 +318,8 @@ class IDHRenderer:
         # Eikonal loss
         gradient_error = (torch.linalg.norm(gradients.reshape(N_rays, N_samples, 3), ord=2,
                                             dim=-1) - 1.0) ** 2
-        gradient_error = (relax_inside_sphere * gradient_error).sum() / (relax_inside_sphere.sum() + 1e-5)
+        # gradient_error = (relax_inside_sphere * gradient_error).sum() / (relax_inside_sphere.sum() + 1e-5)
+        gradient_error = gradient_error.sum() / (gradient_error.numel() + 1e-5)
 
         return {
             'color': color,
@@ -325,7 +331,7 @@ class IDHRenderer:
             'weights': weights,
             'cdf': cdf.reshape(N_rays, N_samples),
             'gradient_error': gradient_error,
-            'inside_sphere': inside_sphere,
+            # 'inside_sphere': inside_sphere,
             'pts_W_pred': pts_W_pred,
             "pts_W_sampled": pts_W_sampled
         }
@@ -367,7 +373,7 @@ class IDHRenderer:
         N_outside = self.n_outside
 
         # dst_gtfms (batch_size, 24, 4, 4)
-        dst_gtfms = self.get_dst_gtfms(iter_step, self.pose_refine_kick_in_iter, dst_Rs, dst_Ts, dst_posevec, self.total_bones, cnl_gtfms, tjoints, gtfs_02v)
+        dst_gtfms, pose_refine_error = self.get_dst_gtfms(iter_step, self.pose_refine_kick_in_iter, dst_Rs, dst_Ts, dst_posevec, self.total_bones, cnl_gtfms, tjoints, gtfs_02v)
         
         # get_non_rigid_embeder
         non_rigid_pos_embed_fn, _ = get_embedder(multires=self.non_rigid_multries, 
@@ -467,38 +473,65 @@ class IDHRenderer:
                                     background_alpha=background_alpha,
                                     background_sampled_color=background_sampled_color,
                                     cos_anneal_ratio=cos_anneal_ratio)
-    
+        
+        ret_fine['pose_refine_error'] = pose_refine_error
         return ret_fine
     
     def get_dst_gtfms(self, iter_step, pose_refine_kick_in_iter, dst_Rs, dst_Ts, dst_posevec, total_bones, cnl_gtfms, tjoints, gtfs_02v):
+        pose_refine_error = None
         # pose refine and motion basis calculation
         if iter_step >= pose_refine_kick_in_iter:
-            dst_Rs, dst_Ts = self.pose_refine(dst_Rs, dst_Ts, dst_posevec, total_bones)
+            dst_Rs, dst_Ts, pose_refine_error = self.pose_refine(dst_Rs, dst_Ts, dst_posevec, total_bones)
         dst_gtfms, _, _ = self.motion_basis_computer(dst_Rs, dst_Ts, cnl_gtfms, tjoints)
-        dst_gtfms = torch.matmul(dst_gtfms, torch.inverse(gtfs_02v)) # final bone transforms that transforms the canonical
+        # gtfs_02v_inv = torch.inverse(gtfs_02v)
+        gtfs_02v_inv = FastDiff4x4MinvFunction.apply(gtfs_02v.reshape(-1, 4, 4))[0].reshape_as(gtfs_02v)
+        dst_gtfms = torch.matmul(dst_gtfms, gtfs_02v_inv) # final bone transforms that transforms the canonical
                                                                     # Vitruvian-pose mesh to the posed mesh, without global
                                                                     # translation
-        return dst_gtfms
+        return dst_gtfms, pose_refine_error
+    
+    def multiply_corrected_Rs(self, Rs, correct_Rs, total_bones):
+        total_bones = total_bones - 1
+        return torch.matmul(Rs.reshape(-1, 3, 3),
+                            correct_Rs.reshape(-1, 3, 3)).reshape(-1, total_bones, 3, 3)
+    
+    def multiply_corrected_Rs_hirarch(self, Rs, correct_Rs, total_bones):
+        """_summary_
+
+        Args:
+            Rs (Tensor): shape (B, 24, 3, 3)
+            correct_Rs (Tensor): shape (B, 23, 3, 3)
+            total_bones (int): 24
+        """
+        # total_bones = total_bones - 1
+        Rs_ret = Rs.clone()
+        for i in range(1, total_bones): # TODO loop unwinding to speedup
+            Rs_ret[:, i, ...] = torch.matmul(Rs_ret[:, SMPL_PARENT[i], ...].clone(), correct_Rs[:, i-1, ...])
+        
+        return Rs_ret
     
     def pose_refine(self, dst_Rs, dst_Ts, dst_posevec, total_bones):
-        def multiply_corrected_Rs(Rs, correct_Rs, total_bones):
-            total_bones = total_bones - 1
-            return torch.matmul(Rs.reshape(-1, 3, 3),
-                                correct_Rs.reshape(-1, 3, 3)).reshape(-1, total_bones, 3, 3)
         # forward pose refine
-        pose_out = self.pose_decoder(dst_posevec) 
+        pose_out = self.pose_decoder(dst_posevec)
         refined_Rs = pose_out['Rs'] # (B, 23, 3, 3) Rs matrix
         refined_Ts = pose_out.get('Ts', None)
         
         # correct dst_Rs
-        dst_Rs_no_root = dst_Rs[:, 1:, ...] # (B, 23, 3, 3)
-        dst_Rs_no_root = multiply_corrected_Rs(dst_Rs_no_root, refined_Rs, total_bones) # (B, 23, 3, 3)
-        dst_Rs = torch.cat([dst_Rs[:, 0:1, ...], dst_Rs_no_root], dim=1) # (B, 24, 3, 3)
+        # ignore_refine_Rs = False
+        if True:
+            dst_Rs_no_root = dst_Rs[:, 1:, ...] # (B, 23, 3, 3)
+            dst_Rs_no_root = self.multiply_corrected_Rs(dst_Rs_no_root, refined_Rs, total_bones) # (B, 23, 3, 3)
+            dst_Rs = torch.cat([dst_Rs[:, 0:1, ...], dst_Rs_no_root], dim=1) # (B, 24, 3, 3)
+        
+        if False:
+            dst_Rs = self.multiply_corrected_Rs_hirarch(dst_Rs, refined_Rs, total_bones)
+            
         # correct dst_Ts
         if refined_Ts is not None:
             dst_Ts = dst_Ts + refined_Ts
         
-        return dst_Rs, dst_Ts
+        pose_refine_error = torch.norm(refined_Rs - torch.eye(3,3).to(refined_Rs), p=2)
+        return dst_Rs, dst_Ts, pose_refine_error
     
     def deform_points(self, points, dst_posevec=None, iter_step=1, non_rigid_kick_in_iter=1000, dst_gtfms=None, non_rigid_pos_embed_fn=None, **deform_kwargs):
         """deform the points in observation space into cononical space via Itertative Backward Deformation.
@@ -514,21 +547,18 @@ class IDHRenderer:
         """
         N_rays, N_samples, _ = points.shape
         points = points.reshape(1, -1, 3) # # (1, N_points, 3)
-        points_cnl, transforms_fwd, transforms_bwd, pts_W_sampled = self.backward_lbs_knn(points, dst_gtfms, **deform_kwargs) # (N_points, 3)
+        points_cnl, transforms_fwd, transforms_bwd, pts_W_sampled = self.backward_lbs_knn(points, dst_gtfms, **deform_kwargs) # (1, N_points, 3)
         
         # iterative backward deformation
+        pts_W_pred = self.query_weights(points_cnl) # (1, N_points, 24)
         for i in range(self.N_iter_backward):
+            points_cnl, transforms_bwd, transforms_fwd = self.backward_lbs_nn(points, pts_W_pred, dst_gtfms, inverse=False) # (1, N_points, 3)
             pts_W_pred = self.query_weights(points_cnl) # (1, N_points, 24)
-            x_bar, T = self.backward_lbs_nn(points, pts_W_pred, dst_gtfms, inverse=False) # (1, N_points, 3)
-            # non_rigid_embed_xyz = non_rigid_pos_embed_fn(x_bar)
-            # points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=x_bar.reshape(-1, 3), condition_code=non_rigid_mlp_input)['xyz']
         
-        if self.N_iter_backward == 0:
-            pts_W_pred = self.query_weights(points_cnl)
-        
-        non_rigid_embed_xyz = non_rigid_pos_embed_fn(points_skl)
+        points_cnl = points_cnl.view(-1, 3) # (N_points, 3)
+        non_rigid_embed_xyz = non_rigid_pos_embed_fn(points_cnl)
         non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < non_rigid_kick_in_iter else dst_posevec # (1, 69)
-        points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=points_skl, condition_code=non_rigid_mlp_input)['xyz']
+        points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=points_cnl, condition_code=non_rigid_mlp_input)['xyz']
         
         return points_cnl.reshape(N_rays, N_samples, 3), pts_W_pred, pts_W_sampled, transforms_fwd, transforms_bwd,
 
@@ -545,7 +575,7 @@ class IDHRenderer:
             _type_: _description_
         """
 
-        wi = self.skinning_model(points[None, ...], c=torch.empty(points.size(0), 0, device=points.device, dtype=torch.float32))
+        wi = self.skinning_model(points, c=torch.empty(points.size(0), 0, device=points.device, dtype=torch.float32))
 
         if wi.size(-1) == 24:
             w_ret = F.softmax(wi, dim=-1) # naive softmax
@@ -570,13 +600,16 @@ class IDHRenderer:
 
         # p:n_point, n:n_bone, i,k: n_dim+1
         w_tf = torch.einsum("bpn,bnij->bpij", w, tfs)
+        # w_tf_inv = w_tf.inverse()
+        w_tf_inv = FastDiff4x4MinvFunction.apply(w_tf.reshape(-1, 4, 4))[0].reshape_as(w_tf)
+
         if inverse:
-            x_h = torch.einsum("bpij,bpj->bpi", w_tf.inverse(), x_h)
+            x_h = torch.einsum("bpij,bpj->bpi", w_tf_inv, x_h)
         else:
             # x_h = torch.einsum("bpn,bnij,bpj->bpi", w, tfs, x_h)
             x_h = torch.einsum("bpij,bpj->bpi", w_tf, x_h)
 
-        return (x_h[:, :, :3], w_tf)
+        return x_h[:, :, :3], w_tf, w_tf_inv
         
     def backward_lbs_knn(self, points, dst_gtfms, dst_vertices, skinning_weights, **kwargs):
         """Backward skinning based on nearest neighbor SMPL skinning weights
@@ -608,23 +641,21 @@ class IDHRenderer:
             pts_W += skinning_weights[bv, p_idx[..., i], :] * w[..., i:i+1]
 
         transforms_fwd = torch.matmul(pts_W, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
-        transforms_bwd = torch.inverse(transforms_fwd)
+        transforms_bwd = FastDiff4x4MinvFunction.apply(transforms_fwd.reshape(-1, 4, 4))[0].reshape_as(transforms_fwd)
 
         homogen_coord = torch.ones(batch_size, N_points, 1, dtype=torch.float32, device=device)
         points_homo = torch.cat([points, homogen_coord], dim=-1).view(batch_size, N_points, 4, 1)
-        points_new = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0]
-        # points_new = normalize_canonical_points(points_new, kwargs['cnl_bbmin'], kwargs['cnl_bbmax']) # (batch_, N_points, 3)
-        points_new = points_new.squeeze()
+        points_new = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0] # (1， N_points, 3)
         
         if False:
             import trimesh
             
             transforms_fwda = torch.matmul(skinning_weights, dst_gtfms.view(1, -1, 16)).view(1, 6890, 4, 4)
-            transforms_bwd = torch.inverse(transforms_fwda)
+            transforms_bwda = torch.inverse(transforms_fwda)
 
             homogen_coord = torch.ones(1, 6890, 1, dtype=torch.float32, device=dst_gtfms.device)
             points_homo = torch.cat([dst_vertices, homogen_coord], dim=-1).view(1, 6890, 4, 1)
-            points_newa = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0]
+            points_newa = torch.matmul(transforms_bwda, points_homo)[:, :, :3, 0]
             trimesh.Trimesh(points_newa[0].detach().cpu().numpy()).export("tvpose_vertices_from_posed.obj")
             
         return points_new, transforms_fwd, transforms_bwd, pts_W

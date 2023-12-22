@@ -21,6 +21,7 @@ class IDHRLoss(nn.Module):
                  mask_weight=0., 
                  skinning_weight=0.,
                  params_weight=0.,
+                 pose_refine_weight=0.,
                  rgb_loss_type='l1',):
         """initialize loss class for loss computing. 
 
@@ -43,6 +44,7 @@ class IDHRLoss(nn.Module):
         self.mask_weight = mask_weight
         self.skinning_weight = skinning_weight
         self.params_weight = params_weight
+        self.pose_refine_weight = pose_refine_weight
         
         if rgb_loss_type == 'l1':
             self.l1_loss = nn.L1Loss(reduction='mean')
@@ -112,6 +114,7 @@ class IDHRLoss(nn.Module):
         pts_w_gt = model_outputs['pts_W_sampled']
         pts_w_pre = model_outputs['pts_W_pred']
         gradient_error = model_outputs['gradient_error']
+        pose_refine_error = model_outputs['pose_refine_error']
         device = color_pre.device
         
         # compute each loss item
@@ -145,6 +148,10 @@ class IDHRLoss(nn.Module):
         else:
             loss_params = torch.zeros(1, device=device)
         
+        if self.pose_refine_weight > 0 and pose_refine_error is not None:
+            loss_pose_refine = pose_refine_error
+        else:
+            loss_pose_refine = torch.zeros(1, device=device)
         
         # get the final loss
         loss_color = loss_color * self.rgb_weight 
@@ -153,7 +160,9 @@ class IDHRLoss(nn.Module):
         loss_eikonal = loss_eikonal * self.eikonal_weight
         loss_mask = loss_mask * self.mask_weight
         loss_params = loss_params * self.params_weight
-        loss = loss_color + loss_pips + loss_skinning_weights + loss_eikonal + loss_mask + loss_params
+        loss_pose_refine = loss_pose_refine * self.pose_refine_weight
+        
+        loss = loss_color + loss_pips + loss_skinning_weights + loss_eikonal + loss_mask + loss_params + loss_pose_refine
         
         loss_results = {
             "loss": loss,
@@ -162,7 +171,8 @@ class IDHRLoss(nn.Module):
             "loss_skinning_weights": loss_skinning_weights,
             "loss_eikonal": loss_eikonal,
             "loss_mask": loss_mask,
-            "loss_params": loss_params
+            "loss_params": loss_params,
+            "loss_pose_refine": loss_pose_refine,
         }
         
         return loss_results

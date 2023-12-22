@@ -37,7 +37,8 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
                  N_patches=1,
                  sample_subject_ratio=0.8,
                  N_samples=64,
-                 inner_sampling=False):
+                 inner_sampling=False,
+                 res_level=4):
         assert len(subjects) == 1, 'SINGLE PERSON! Please make sure the length of subjects list is one.'
         assert len(views) == 1, 'MONOCULAR! Please make sure the length of views list is one.'
         
@@ -51,6 +52,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         self.N_samples = N_samples
         self.volume_size = 64
         self.inner_sampling = inner_sampling
+        self.res_level = res_level
         
         # flags
         self.bgcolor = np.array(backgroung_color, dtype=np.float32) if backgroung_color is not None else (np.random.rand(3) * 255).astype(np.float32)
@@ -199,7 +201,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         return rays_o, rays_d, rays_img, rays_alpha, near, far
 
     def gen_rays_for_infer(self, idx):
-        res_level = 4
+        res_level = self.res_level
         # get image & mask
         frame_name = self.framelist[idx]
         image = self.images_np[idx] # (H, W, 3)
@@ -283,15 +285,6 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
             results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = inter_mask
         return results
-
-    def __len__(self):
-        return len(self.framelist)
-    
-    def __getitem__(self, idx):
-        if self.mode in ['test','val']:
-            return self.gen_rays_for_infer(idx)
-        else:
-            return self.gen_rays_for_train(idx)
     
     def gen_rays_for_train(self, idx):
         # get image & mask
@@ -323,7 +316,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         R = E[:3, :3]
         T = E[:3, 3]
 
-        # calculate rays in world coordinate from pixel/image coordinate
+        # calculateinfo rays in world coordinate from pixel/image coordinate
         rays_o, rays_d = get_rays_from_KRT(H, W, K, R, T)
         rays_img = image.reshape(-1, 3) # (H, W, 3) --> (HxW, 3)
         rays_alpha = alpha.reshape(-1, 1) # (H, W, 1) --> (HxW, 1)
@@ -412,6 +405,15 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
             
         return results
     
+    def __len__(self):
+        return len(self.framelist)
+    
+    def __getitem__(self, idx):
+        if self.mode in ['test','val']:
+            return self.gen_rays_for_infer(idx)
+        else:
+            return self.gen_rays_for_train(idx)
+    
     def update_near_far(self, sampled_near, sampled_far, cam_loc, sampled_rays, posed_vertices):
         # ray mesh intersections computing
         near_bbox_points = sampled_rays * sampled_near + cam_loc
@@ -488,7 +490,6 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
             hit_dists = hit_dists + dists[:, :1]                                # (N_rays, N_interval * 2)
         
         z_vals, inter_mask = self.calculate_inner_smpl_depth(near, far, hit_masks, hit_dists)
-        
         return z_vals, inter_mask
     
     def calculate_inner_smpl_depth(self, near, far, hit_masks, hit_dists):

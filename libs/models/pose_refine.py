@@ -43,9 +43,7 @@ class BodyPoseRefiner(nn.Module):
         Returns:
             _type_: _description_
         """
-        rvec = self.block_mlps(pose_input).view(-1, 3) # (B*23, 3)
-        Rs = self.rodriguez(rvec).view(-1, self.total_bones, 3, 3) # (B, 23, 3, 3)
+        rvec = self.block_mlps(pose_input).view(-1, 3) # (B*total_bones, 3)
+        Rs = self.rodriguez(rvec).view(-1, self.total_bones, 3, 3) # (B, total_bones, 3, 3)
         
-        return {
-            "Rs": Rs
-        }
+        return {"Rs": Rs}

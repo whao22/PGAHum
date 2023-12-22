@@ -95,18 +95,13 @@ if __name__ == '__main__':
             del ckpt
 
         validate_every = max_epochs + 1
-
-    val_frequency = {}
-    if conf.dataset.train_end_frame > 100:
-        val_frequency['val_check_interval'] = conf.train.val_every_step
-    else:
-        val_frequency['check_val_every_n_epoch'] = conf.train.val_every_epoch
+        
     trainer = pl.Trainer(logger=logger,
                         log_every_n_steps=conf.train.log_every_step,
                         default_root_dir=conf.general.base_exp_dir,
                         callbacks=[checkpoint_callback],
                         max_epochs=max_epochs,
-                        **val_frequency,
+                        check_val_every_n_epoch=conf.train.val_every_epoch,
                         accelerator='gpu',
                         strategy='ddp' if len(conf.train.gpus) > 1 else None,
                         devices=conf.train.gpus,

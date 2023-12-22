@@ -5,7 +5,8 @@ import point_cloud_utils as pcu
 import pytorch3d
 from scipy.spatial.transform import Rotation
 from libs.utils.MCAcc import GridSamplerMine3dFunction
-from libs.utils.grid_sample_3d import grid_sample_3d
+# from libs.utils.grid_sample_3d import grid_sample_3d
+# from libs.utils.ops.grid_sample import grid_sample_3d as grid_sample_3d_cuda
 
 def sample_sdf_from_grid(points, cnl_grid_sdf, cnl_bbmin, cnl_bbmax):
     ori_shape = points.shape
@@ -23,9 +24,10 @@ def sample_sdf_from_grid(points, cnl_grid_sdf, cnl_bbmin, cnl_bbmax):
     points_sampled[..., 0] = points[..., 2]
     points_sampled[..., 1] = points[..., 1]
     points_sampled[..., 2] = points[..., 0]
-    sdf_sampled = grid_sample_3d(cnl_grid_sdf, points_sampled)
+    # sdf_sampled = grid_sample_3d(cnl_grid_sdf, points_sampled)
+    # sdf_sampled = grid_sample_3d_cuda(cnl_grid_sdf, points_sampled)
     # sdf_sampled = torch.nn.functional.grid_sample(cnl_grid_sdf, points_sampled)
-    # sdf_sampled = GridSamplerMine3dFunction.apply(cnl_grid_sdf, points_sampled)
+    sdf_sampled = GridSamplerMine3dFunction.apply(cnl_grid_sdf, points_sampled)
     sdf_sampled = sdf_sampled / 2. * (cnl_bbmax - cnl_bbmin)
     return sdf_sampled.view(list(ori_shape)[:-1]+[1])
 
