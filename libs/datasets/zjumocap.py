@@ -22,7 +22,7 @@ from libs.utils.camera_utils import \
 
 class ZJUMoCapDataset(torch.utils.data.Dataset):
     def __init__(self, 
-                 dataset_folder='',
+                 dataset_folder='data/data_prepared',
                  subjects=['CoreView_313'],
                  mode='train',
                  resize_img_scale=1.,
@@ -47,23 +47,25 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         self.patch_size = patch_size
         self.N_patches = N_patches
         self.sample_subject_ratio = sample_subject_ratio
-        self.dataset_path = os.path.join(dataset_folder, subjects[0], views[0])
-        self.image_dir = os.path.join(self.dataset_path, 'images')
         self.N_samples = N_samples
         self.volume_size = 64
         self.inner_sampling = inner_sampling
         self.res_level = res_level
-        
-        # flags
         self.bgcolor = np.array(backgroung_color, dtype=np.float32) if backgroung_color is not None else (np.random.rand(3) * 255).astype(np.float32)
         self.ray_shoot_mode = ray_shoot_mode
         self.bbox_offset=box_margin
         self.resize_img_scale=resize_img_scale
         
+        self.dataset_path = os.path.join(dataset_folder, subjects[0])
+        self.image_dir = os.path.join(self.dataset_path, views[0], 'images')
+        self.mask_dir = os.path.join(self.dataset_path, views[0], 'masks')
+        self.camera_info_dir = os.path.join(self.dataset_path, views[0])
+        
         # load data
         self.canonical_joints, self.canonical_bbox = \
             self.load_canonical_joints()
         self.gtfs_02v = get_02v_bone_transforms(self.canonical_joints)
+        self.cnl_gtfms = get_canonical_global_tfms(self.canonical_joints) # (24, 4, 4)
         self.cameras = self.load_train_cameras()
         self.mesh_infos = self.load_train_mesh_infos()
         self.framelist = self.load_train_frames()[start_frame:end_frame:sampling_rate]
@@ -73,11 +75,11 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         self.skinning_weights = dict(np.load('data/body_models/misc/skinning_weights_all.npz'))
         self.posedirs = dict(np.load('data/body_models/misc/posedirs_all.npz'))
         self.J_regressor = dict(np.load('data/body_models/misc/J_regressors.npz'))
-        self.smpl_sdf = np.load(os.path.join(dataset_folder, subjects[0], views[0], 'smpl_sdf.npy'), allow_pickle=True).item()
+        self.smpl_sdf = np.load(os.path.join(self.dataset_path, 'smpl_sdf.npy'), allow_pickle=True).item()
         
         images, masks = [], []
         for fname in tqdm(self.framelist):
-            image, mask = self.load_image(fname, self.bgcolor) # (H, W, 3) (H, W, 1)
+            image, mask = self.load_image_mask(fname, self.bgcolor) # (H, W, 3) (H, W, 1)
             images.append(image/255)
             masks.append(mask)
         self.images_np = np.stack(images).astype(np.float32) # (n_images, H, W, 3)
@@ -98,7 +100,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
 
     def load_train_cameras(self):
         cameras = None
-        with open(os.path.join(self.dataset_path, 'cameras.pkl'), 'rb') as f: 
+        with open(os.path.join(self.camera_info_dir, 'cameras.pkl'), 'rb') as f: 
             cameras = pickle.load(f)
         return cameras
 
@@ -133,28 +135,27 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         return mesh_infos
 
     def load_train_frames(self):
-        img_paths = list_files(os.path.join(self.dataset_path, 'images'),
+        img_paths = list_files(self.image_dir,
                                exts=['.png'])
         return [split_path(ipath)[1] for ipath in img_paths]
     
     def query_dst_skeleton(self, frame_name):
         return {
             'poses': self.mesh_infos[frame_name]['poses'].astype('float32'),
-            'dst_tpose_joints': \
-                self.mesh_infos[frame_name]['tpose_joints'].astype('float32'),
+            # 'dst_tpose_joints': \
+            #     self.mesh_infos[frame_name]['tpose_joints'].astype('float32'),
+            'dst_tpose_joints': self.canonical_joints.astype('float32'),
             'bbox': self.mesh_infos[frame_name]['bbox'].copy(),
             'Rh': self.mesh_infos[frame_name]['Rh'].astype('float32'),
             'Th': self.mesh_infos[frame_name]['Th'].astype('float32'),
             'posed_vertices': self.mesh_infos[frame_name]['posed_vertices'].astype('float32')
         }
     
-    def load_image(self, frame_name, bg_color):
+    def load_image_mask(self, frame_name, bg_color):
         imagepath = os.path.join(self.image_dir, '{}.png'.format(frame_name))
         orig_img = np.array(load_image(imagepath))
 
-        maskpath = os.path.join(self.dataset_path, 
-                                'masks', 
-                                '{}.png'.format(frame_name))
+        maskpath = os.path.join(self.mask_dir,'{}.png'.format(frame_name))
         alpha_mask = np.array(load_image(maskpath))[...,:1]
         
         # undistort image
@@ -215,7 +216,6 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         dst_tpose_joints = dst_skel_info['dst_tpose_joints'] # (24, 3)
         dst_vertices = dst_skel_info['posed_vertices']
         dst_Rs, dst_Ts = body_pose_to_body_RTs(dst_poses, dst_tpose_joints) # (24, 3, 3) (24, 3)
-        cnl_gtfms = get_canonical_global_tfms(self.canonical_joints) # (24, 4, 4)
 
         # calculate K, E, T
         assert frame_name in self.cameras
@@ -266,7 +266,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
             'dst_Ts': dst_Ts, # ndarray (24, 3)
             'dst_posevec': dst_poses[3:] + 1e-2, # ndarray (69,)
             'dst_vertices': dst_vertices, # ndarray (6890, 3),
-            'cnl_gtfms': cnl_gtfms, # ndarray (24, 4, 4)
+            'cnl_gtfms': self.cnl_gtfms.astype(np.float32), # ndarray (24, 4, 4)
             'cnl_bbox_min_xyz': min_xyz, # ndarray (3,)
             'cnl_bbox_max_xyz': max_xyz, # ndarray (3,)
             'cnl_bbox_scale_xyz': 2.0 / (max_xyz - min_xyz),  # ndarray (3,)
@@ -301,7 +301,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         dst_vertices = dst_skel_info['posed_vertices']
         
         dst_Rs, dst_Ts = body_pose_to_body_RTs(dst_poses, dst_tpose_joints) # (24, 3, 3) (24, 3)
-        cnl_gtfms = get_canonical_global_tfms(self.canonical_joints) # (24, 4, 4)
+        
 
         # calculate K, E, T
         assert frame_name in self.cameras
@@ -380,7 +380,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
             'dst_Ts': dst_Ts, # ndarray (24, 3)
             'dst_posevec': dst_poses[3:] + 1e-2, # ndarray (69,)
             'dst_vertices': dst_vertices, # ndarray (6890, 3)
-            'cnl_gtfms': cnl_gtfms, # ndarray (24, 4, 4)
+            'cnl_gtfms': self.cnl_gtfms.astype(np.float32), # ndarray (24, 4, 4)
             'cnl_bbox_min_xyz': min_xyz, # ndarray (3,)
             'cnl_bbox_max_xyz': max_xyz, # ndarray (3,)
             'cnl_bbox_scale_xyz': 2.0 / (max_xyz - min_xyz),  # ndarray (3,)

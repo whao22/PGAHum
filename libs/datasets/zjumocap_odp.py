@@ -35,9 +35,6 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
                  box_margin=0.05,
                  ray_shoot_mode='default',
                  backgroung_color=None,
-                 patch_size=32,
-                 N_patches=1,
-                 sample_subject_ratio=0.8,
                  N_samples=64,
                  inner_sampling=False,
                  res_level=4):
@@ -46,20 +43,18 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
         
         # meta data
         self.mode = mode
-        self.dataset_path = os.path.join(dataset_folder, subjects[0], views[0])
-        if new_pose_mode == 'zjumocap':
-            self.new_pose_dir = os.path.join(new_pose_folder, "mesh_info.pkl")
-        else:
-            raise ValueError(f"Unimplement pose mode!")
         self.N_samples = N_samples
         self.inner_sampling = inner_sampling
         self.res_level = res_level
-        
-        # flags
         self.bgcolor = np.array(backgroung_color, dtype=np.float32) if backgroung_color is not None else (np.random.rand(3) * 255).astype(np.float32)
         self.ray_shoot_mode = ray_shoot_mode
         self.bbox_offset=box_margin
         self.resize_img_scale=resize_img_scale
+        self.new_pose_mode = new_pose_mode
+        self.new_pose_folder = new_pose_folder
+        
+        self.dataset_path = os.path.join(dataset_folder, subjects[0])
+        self.camera_info_dir = os.path.join(self.dataset_path, views[0])
         
         # load data
         self.canonical_joints, self.canonical_bbox = \
@@ -67,24 +62,14 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
         self.cnl_gtfms = get_canonical_global_tfms(self.canonical_joints) # (24, 4, 4)
         self.gtfs_02v = get_02v_bone_transforms(self.canonical_joints)
         self.cameras = self.load_train_cameras()
-        
-        self.mesh_infos = self.load_new_mesh_infos(start_frame, end_frame, sampling_rate) ## TODO update load mesh info for test
-        self.framelist = self.load_train_frames()[start_frame:end_frame:sampling_rate]
-        self.n_images = len(self.framelist)
+        self.mesh_infos, self.framelist = self.load_new_mesh_infos()
+        self.framelist = self.framelist[start_frame:end_frame:sampling_rate]
         
         self.faces = np.load('data/body_models/misc/faces.npz')['faces']
         self.skinning_weights = dict(np.load('data/body_models/misc/skinning_weights_all.npz'))
         self.posedirs = dict(np.load('data/body_models/misc/posedirs_all.npz'))
         self.J_regressor = dict(np.load('data/body_models/misc/J_regressors.npz'))
-        self.smpl_sdf = np.load(os.path.join(dataset_folder, subjects[0], views[0], 'smpl_sdf.npy'), allow_pickle=True).item()
-        
-        images, masks = [], []
-        for fname in tqdm(self.framelist):
-            image, mask = self.load_image(fname, self.bgcolor) # (H, W, 3) (H, W, 1)
-            images.append(image/255)
-            masks.append(mask)
-        self.images_np = np.stack(images).astype(np.float32) # (n_images, H, W, 3)
-        self.masks_np = np.stack(masks).astype(np.float32) # (n_images, H, W, 1)
+        self.smpl_sdf = np.load(os.path.join(self.dataset_path, 'smpl_sdf.npy'), allow_pickle=True).item()
         
         print(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
         
@@ -101,7 +86,7 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
 
     def load_train_cameras(self):
         cameras = None
-        with open(os.path.join(self.dataset_path, 'cameras.pkl'), 'rb') as f: 
+        with open(os.path.join(self.camera_info_dir, 'cameras.pkl'), 'rb') as f: 
             cameras = pickle.load(f)
         return cameras
 
@@ -123,94 +108,46 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
             'max_xyz': max_xyz
         }
 
-    def load_train_mesh_infos(self):
-        mesh_infos = None
-        with open(os.path.join(self.dataset_path, 'mesh_infos.pkl'), 'rb') as f:   
-            mesh_infos = pickle.load(f)
-
-        for frame_name in mesh_infos.keys():
-            # bbox = self.skeleton_to_bbox(mesh_infos[frame_name]['joints'])
-            bbox = self.skeleton_to_bbox(mesh_infos[frame_name]['posed_vertices'])
-            mesh_infos[frame_name]['bbox'] = bbox
-
-        return mesh_infos
-    
     def load_new_mesh_infos(self):
         mesh_infos = None
-        with open(os.path.join(self.dataset_path, 'mesh_infos.pkl'), 'rb') as f:   
-            mesh_infos = pickle.load(f)
-
+        if self.new_pose_mode == 'zjumocap':
+            with open(os.path.join(self.new_pose_folder, 'mesh_infos.pkl'), 'rb') as f: 
+                mesh_infos = pickle.load(f)      
+        else:
+            raise ValueError(f"Unimplement pose mode!")
+        
+        framelist = []
         for frame_name in mesh_infos.keys():
+            framelist.append(frame_name)
             # bbox = self.skeleton_to_bbox(mesh_infos[frame_name]['joints'])
             bbox = self.skeleton_to_bbox(mesh_infos[frame_name]['posed_vertices'])
             mesh_infos[frame_name]['bbox'] = bbox
 
-        return mesh_infos
-
-    def load_train_frames(self):
-        img_paths = list_files(os.path.join(self.dataset_path, 'images'),
-                               exts=['.png'])
-        return [split_path(ipath)[1] for ipath in img_paths]
+        return mesh_infos, framelist
     
     def query_dst_skeleton(self, frame_name):
         return {
             'poses': self.mesh_infos[frame_name]['poses'].astype('float32'),
             'dst_tpose_joints': \
-                self.mesh_infos[frame_name]['tpose_joints'].astype('float32'),
+                self.canonical_joints.astype('float32'),
             'bbox': self.mesh_infos[frame_name]['bbox'].copy(),
             'Rh': self.mesh_infos[frame_name]['Rh'].astype('float32'),
             'Th': self.mesh_infos[frame_name]['Th'].astype('float32'),
             'posed_vertices': self.mesh_infos[frame_name]['posed_vertices'].astype('float32')
         }
-    
-    def load_image(self, frame_name, bg_color):
-        imagepath = os.path.join(self.image_dir, '{}.png'.format(frame_name))
-        orig_img = np.array(load_image(imagepath))
 
-        maskpath = os.path.join(self.dataset_path, 
-                                'masks', 
-                                '{}.png'.format(frame_name))
-        alpha_mask = np.array(load_image(maskpath))[...,:1]
-        
-        # undistort image
-        if frame_name in self.cameras and 'distortions' in self.cameras[frame_name]:
-            K = self.cameras[frame_name]['intrinsics']
-            D = self.cameras[frame_name]['distortions']
-            orig_img = cv2.undistort(orig_img, K, D)
-            alpha_mask = cv2.undistort(alpha_mask, K, D)[..., None]
-
-        alpha_mask = alpha_mask / 255.
-        img = alpha_mask * orig_img + (1.0 - alpha_mask) * bg_color[None, None, :]
-        # a = img.astype(np.uint8)
-        if self.resize_img_scale != 1.:
-            img = cv2.resize(img, None, 
-                                fx=self.resize_img_scale,
-                                fy=self.resize_img_scale,
-                                interpolation=cv2.INTER_LINEAR)
-            alpha_mask = cv2.resize(alpha_mask, None, 
-                                    fx=self.resize_img_scale,
-                                    fy=self.resize_img_scale,
-                                    interpolation=cv2.INTER_LINEAR)[..., None]
-        
-        return img, alpha_mask
-
-    def sample_image_rays(self, res_level, rays_o, rays_d, rays_img, rays_alpha, near, far):
+    def sample_image_rays(self, res_level, rays_o, rays_d, near, far):
         rays_o = rays_o[::res_level, ::res_level].reshape(-1, 3) # (N_rays, 3)
         rays_d = rays_d[::res_level, ::res_level].reshape(-1, 3) # (N_rays, 3)
-        rays_img = rays_img[::res_level, ::res_level].reshape(-1, 3) # (N_rays, 3)
-        rays_alpha = rays_alpha[::res_level, ::res_level].reshape(-1, 1) # (N_rays, 1)
         near = near[::res_level, ::res_level].reshape(-1, 1) # (N_rays, 1)
         far = far[::res_level, ::res_level].reshape(-1, 1) # (N_rays, 1)
         
-        return rays_o, rays_d, rays_img, rays_alpha, near, far
+        return rays_o, rays_d, near, far
 
     def gen_rays_for_infer(self, idx):
         res_level = self.res_level
-        # get image & mask
         frame_name = self.framelist[idx]
-        image = self.images_np[idx] # (H, W, 3)
-        alpha = self.masks_np[idx] # (H, W, 1)
-        H, W = image.shape[0:2]
+        H, W = 1024, 1024 # zjumocap image height and width
 
         # dst skeleton info
         dst_skel_info = self.query_dst_skeleton(frame_name)
@@ -220,7 +157,6 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
         dst_vertices = dst_skel_info['posed_vertices']
         dst_Rs, dst_Ts = body_pose_to_body_RTs(dst_poses, dst_tpose_joints) # (24, 3, 3) (24, 3)
         
-
         # calculate K, E, T
         assert frame_name in self.cameras
         K = self.cameras[frame_name]['intrinsics'][:3, :3].copy()
@@ -244,14 +180,12 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
         far[rays_mask] = far_
         
         # calculate batch or patch rays
-        rays_o, rays_d, rays_img, rays_alpha, near, far = self.sample_image_rays(res_level=res_level,
+        rays_o, rays_d, near, far = self.sample_image_rays(res_level=res_level,
                             rays_o=rays_o,
                             rays_d=rays_d,
-                            rays_img=image,
-                            rays_alpha=alpha,
                             near=near.reshape(H, W, 1),
                             far=far.reshape(H, W, 1)) # (N_rays, 12) denote there are N_rays rays
-        batch_rays = np.concatenate([rays_o, rays_d, rays_img, rays_alpha, near, far], axis=-1) # (N_rays, 12)
+        batch_rays = np.concatenate([rays_o, rays_d, np.zeros_like(rays_o), np.zeros_like(rays_o), near, far], axis=-1) # (N_rays, 12), Columns 6-11 are just for space and to avoid code changes
         
         # return result
         min_xyz = self.canonical_bbox['min_xyz'].astype('float32')

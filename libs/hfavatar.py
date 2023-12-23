@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 import numpy as np
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 import torch
@@ -57,7 +58,7 @@ class HFAvatar(pl.LightningModule):
         self.total_bones = conf['general.total_bones']
         self.batch_size = conf['train.batch_size']
         self.N_rays = conf.dataset.patch_size**2 * conf.dataset.N_patches
-        self.resolution_level = conf.train.resolution_level
+        self.resolution_level = conf.dataset.res_level
         self.lr = conf.train.lr
         self.warm_up_end = conf.train.warm_up_end
         self.view_input_noise = conf.train.view_input_noise
@@ -172,7 +173,89 @@ class HFAvatar(pl.LightningModule):
         
     def on_before_optimizer_step(self, optimizer: Optimizer, optimizer_idx: int) -> None:
         self.update_learning_rate(optimizer)
+    
+    def test_step(self, data, idx):
+        sdf_decoder = None
+        sdf_params = None
+        if self.sdf_mode == 'hyper_net':
+            sdf_decoder, sdf_params = self.get_sdf_decoder(data, idx)
         
+        def feasible(key):
+            return (key in render_out) and (render_out[key] is not None)
+        
+        with torch.enable_grad():
+            n_batches = int(data['batch_rays'].size(1) / self.N_rays)
+            out_rgb_fine = []
+            out_normal_fine = []
+
+            for i in tqdm(range(n_batches)):
+                data_batch = data.copy()
+                data_batch['batch_rays'] = data_batch['batch_rays'][:, i*self.N_rays:(i+1)*self.N_rays]
+                if self.inner_sampling:
+                    data_batch['z_vals'] = data_batch['z_vals'][:, i*self.N_rays:(i+1)*self.N_rays]
+                    data_batch['hit_mask'] = data_batch['hit_mask'][:, i*self.N_rays:(i+1)*self.N_rays]
+                render_out = self.renderer.render(data_batch, self.global_step, cos_anneal_ratio=self.get_cos_anneal_ratio(), sdf_decoder=sdf_decoder)
+
+                if feasible('color'):
+                    out_rgb_fine.append(render_out['color'].detach().cpu().numpy())
+                if feasible('gradients') and feasible('weights'):
+                    n_samples = self.renderer.n_samples + self.renderer.n_importance
+                    normals = render_out['gradients'] * render_out['weights'][:, :n_samples, None]
+                    if feasible('inside_sphere'):
+                        normals = normals * render_out['inside_sphere'][..., None]
+                    normals = normals.sum(dim=1).detach().cpu().numpy()
+                    # normals = (normals.sum(dim=1)**2).sum(dim=1,keepdim=True).sqrt().tile(1,3).detach().cpu().numpy()
+                    out_normal_fine.append(normals)
+                torch.cuda.empty_cache()
+                del render_out
+                del data_batch
+
+            img_fine = None
+            H, W, E = data['height'].squeeze(), data['width'].squeeze(), data['extrinsic'].squeeze()
+            
+            if len(out_rgb_fine) > 0:
+                img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3, -1]) * 256).clip(0, 255)
+                if self.resolution_level == 1:
+                    color_fine = torch.from_numpy(np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3])).to(self.device)
+                    true_rgb = self.dataset.images[idx].to(self.device)
+                    color_error = color_fine - true_rgb
+                    color_fine_loss = F.l1_loss(color_error, torch.zeros_like(color_error), reduction='mean')
+                    outstr = '{0:4d} img: loss: {1:.2f}\n'.format(idx, color_fine_loss)
+                    print(outstr)
+                    f = os.path.join(self.base_exp_dir, 'logs', 'image_metric.txt')
+                    with open(f, 'a') as file:
+                        file.write(outstr)
+                    mse = F.mse_loss(color_fine, true_rgb).item()
+                    psnr = mse2psnr(mse)
+                    ssim = pytorch_ssim.ssim(color_fine.permute(2, 0, 1).unsqueeze(0), true_rgb.permute(2, 0, 1).unsqueeze(0)).item()
+                    print(outstr)
+                    f = os.path.join(self.base_exp_dir, 'logs', 'image_metric.txt')
+                    with open(f, 'a') as file:
+                        file.write(outstr)
+
+            normal_img = None
+            if len(out_normal_fine) > 0:
+                normal_img = np.concatenate(out_normal_fine, axis=0)
+                rot = np.linalg.inv(E[:3,:3].detach().cpu().numpy())
+                normal_img = (np.matmul(rot[None, :, :], normal_img[:, :, None])
+                            .reshape([H, W, 3, -1]) * 128 + 128).clip(0, 255)
+                # maxv = normal_img.max()
+                # normal_img = (normal_img[:, :, None]
+                #               .reshape([H, W, 3, -1]) / maxv * 256).clip(0, 255)
+
+            for i in range(img_fine.shape[-1]):
+                if len(out_rgb_fine) > 0:
+                    pred_image = img_fine[..., i]
+                    
+                if len(out_normal_fine) > 0:
+                    mormal_map = normal_img[..., i]
+            
+            # log
+            self.logger.log_image(key="test_samples",
+                    images=[pred_image, mormal_map],
+                    caption=["pred image", "normal map"]
+            )
+    
     def validation_step(self, data, idx):
         sdf_decoder = None
         sdf_params = None
@@ -242,7 +325,7 @@ class HFAvatar(pl.LightningModule):
                 # maxv = normal_img.max()
                 # normal_img = (normal_img[:, :, None]
                 #               .reshape([H, W, 3, -1]) / maxv * 256).clip(0, 255)
-
+                
             for i in range(img_fine.shape[-1]):
                 if len(out_rgb_fine) > 0:
                     pred_image = img_fine[..., i]

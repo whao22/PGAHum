@@ -1,10 +1,10 @@
-preparation
-
 # Learning Editable/Adaptive High-Fidelity Animatable avatar from Casual videos
 
 ## Description
 
-![img](assets/teaser.png)
+<center class="half">
+  <img src="assets/odp_01_rgb.png" width="200"/> <img src="assets/odp_01_nrl.png" width="200"/> <img src="assets/odp_02_rgb.png" width="200"/> <img src="assets/odp_02_nrl.png" width="200"/>
+</center>
 
 Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.
 
@@ -17,7 +17,6 @@ Please run the following scripts for create python virtual environment and insta
 ```
 conda env create -f environment.yml
 
-# build and install dependencies
 bash scripts/install.sh
 ```
 
@@ -52,13 +51,25 @@ You can get the raw data from their respective sources and use our preprocessing
 ### Training
 
 ```
-bash scripts/run_377_neus.sh
+bash scripts/train_377_hfavatar.sh
 ```
 
-### Evaluation
+### Inference
+
+Please run the following script to validate and test.
 
 ```
-bash scripts/run_377_neus.sh
+bash scripts/infer_377_hfavatar.sh
+```
+
+For example, in script `run_377_hfavatar`, the term `exp_name` denoted the specified model which need to be used. resolution_level determined the level of the rendering images, `4 for (256, 256), 2 for (512, 512)`. The term `novel_view` represents a new view point for testing, which can be any one of the existing perspectives, such as any one between 0 and 22 in the context of ZJUMocap dataset. `novel_pose` specifies the directory for a new pose sequence. `infer_mode` indicates the mode of inference, and its value can be either `val` or `test`. The distinction lies in the fact that `val` involves comparison with GT images, while `test` does not. When a new pose is specified, please make sure to keep the `infer_mode=test`.
+
+## Extract Geometry
+
+You can run the following script to extract mesh from learned sdf function. The term `base_exp_dir` represents the model path, and `resolution` indicates the resolution of the grid for feature extraction.
+
+```
+python extract_geometry.py --conf [/path/to/conf] --base_exp_dir [/path/to/exp_dir] --resolution 512
 ```
 
 ## Citation

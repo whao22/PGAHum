@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=hfavatar # 作业名称 
-#SBATCH --ntasks=1 # 任务数为1 
-#SBATCH --cpus-per-task=72
+#SBATCH --job-name=hfavatar
+#SBATCH --ntasks=8
+#SBATCH --cpus-per-task=9
 #SBATCH --mem=128G
 #SBATCH --partition=gpujl
-#SBATCH --gres=gpu:4 # 如果需要，使用1个GPU
+#SBATCH --gres=gpu:4
 
 # show currrent status
 echo Start time is `date`

@@ -12,14 +12,15 @@ from libs import module_config
 
 # Arguments
 parser = argparse.ArgumentParser(
-    description='Validation function on with-distribution poses (ZJU training and testing).'
+    description='Inference function on with-distribution poses (ZJU training and testing).'
 )
 parser.add_argument('conf', type=str, help='Path to config file.')
 parser.add_argument('--base_exp_dir', type=str, default=None)
-parser.add_argument('--novel-pose', action='store_true', help='Test on novel-poses.')
-parser.add_argument('--novel-pose-view', type=str, default=None, help='Novel view to use for rendering novel poses. Specify this argument if you only want to render a specific view of novel poses.')
-parser.add_argument('--novel-view', action='store_true', help='Test on novel-views of all training poses.')
-parser.add_argument('--gpus', action='store_true',default=[3], help='Test on multiple GPUs.')
+parser.add_argument('--infer_mode', type=str, default='val')
+parser.add_argument('--novel_pose', type=str, default=None, help='Test specified novel pose, e.g. data/data_prepared/CoreView_392')
+parser.add_argument('--novel_view', type=int, default=-1, help='Test specified novel view, e.g. 1, 2, 3')
+parser.add_argument('--resolution_level', type=int, default=4, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
+parser.add_argument('--gpus', type=list, default=[1], help='Test on multiple GPUs.')
 parser.add_argument('--num-workers', type=int, default=4,
                     help='Number of workers to use for val/test loaders.')
 parser.add_argument('--run-name', type=str, default='',
@@ -29,21 +30,22 @@ if  __name__ == '__main__':
     args = parser.parse_args()
     conf = ConfigFactory.parse_file(args.conf)
     num_workers = args.num_workers
-
-    conf['dataset']['res_level'] = 4
-    # Novel-view synthesis on training poses: evluate every 30th frame
-    if args.novel_view and not args.novel_pose:
-        conf['dataset']['val_subsampling_rate'] = 30
-
-    # View-synthesis (can be either training or testing views) on novel poses
-    if args.novel_pose_view is not None:
-        assert (args.novel_pose)
-        conf['dataset']['test_subsampling_rate'] = 1
-        conf['dataset']['test_views'] = [args.novel_pose_view]
-
-    # Dataloaders
-    val_dloader = DataLoader(
-        module_config.get_dataset('val', conf),
+    split_mode = args.infer_mode
+    conf['dataset']['res_level'] = args.resolution_level
+    conf['dataset'][f'{split_mode}_subsampling_rate'] = 30
+    
+    # Validation dataset for novel views
+    if args.novel_view >= 0:
+        conf['dataset'][f'{split_mode}_views'] = [args.novel_view]
+        
+    # Novel-pose synthesis on training view, we determine when novel_pose is on, the split mode should not be 'val'.
+    if split_mode != 'val' and args.novel_pose is not None:
+        conf['dataset']['dataset'] = "zju_mocap_odp"
+        conf['dataset']['new_pose_mode'] = "zjumocap"
+        conf['dataset']['new_pose_folder'] = args.novel_pose
+    
+    dloader = DataLoader(
+        module_config.get_dataset(split_mode, conf),
         batch_size=conf.train.batch_size,
         num_workers=conf.train.num_workers,
         shuffle=False)
@@ -80,7 +82,10 @@ if  __name__ == '__main__':
     trainer = pl.Trainer(logger=logger,
                         default_root_dir=out_dir,
                         accelerator='gpu',
-                        devices=[3],
+                        devices=args.gpus,
                         num_sanity_val_steps=0)
-
-    trainer.validate(model=model, dataloaders=val_dloader, ckpt_path=checkpoint_path, verbose=True)
+    
+    if split_mode == 'test':
+        trainer.test(model=model, dataloaders=dloader, ckpt_path=checkpoint_path, verbose=True)
+    elif split_mode == 'val':
+        trainer.validate(model=model, dataloaders=dloader, ckpt_path=checkpoint_path, verbose=True)

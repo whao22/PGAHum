@@ -13,7 +13,7 @@ def sample_sdf_from_grid(points, cnl_grid_sdf, cnl_bbmin, cnl_bbmax):
     if len(points.shape) == 2:
         points = points.unsqueeze(0)
     if len(cnl_grid_sdf.shape) !=5:
-        cnl_grid_sdf = cnl_grid_sdf.unsqueeze(0)
+        cnl_grid_sdf = cnl_grid_sdf.squeeze().unsqueeze(0).unsqueeze(0)
     
     B, N, _ = points.shape
     points = (points - cnl_bbmin) / (cnl_bbmax - cnl_bbmin + 1e-10)

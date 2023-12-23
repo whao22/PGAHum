@@ -1,93 +1,17 @@
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import logging
-import mcubes
+
+
 import pytorch3d.ops as ops
-from collections import OrderedDict
 from libs.embeders.hannw_fourier import get_embedder
 from libs.utils.FastMinv.fast_matrix_inv import FastDiff4x4MinvFunction
 from libs.utils.general_utils import normalize_canonical_points, hierarchical_softmax, sample_sdf, sample_sdf_from_grid
-from time import time
+from libs.utils.geometry_utils import compute_gradient
 
 SMPL_PARENT = {
     1: 0, 2: 0, 3: 0, 4: 1, 5: 2, 6: 3, 7: 4, 8: 5, 9: 6, 10: 7, 
     11: 8, 12: 9, 13: 9, 14: 9, 15: 12, 16: 13, 17: 14, 18: 16, 19: 17, 20: 18, 
     21: 19, 22: 20, 23: 21}
-
-def compute_gradient(y, x, grad_outputs=None, retain_graph=True, create_graph=True):
-    if grad_outputs is None:
-        grad_outputs = torch.ones_like(y, requires_grad=False, device=y.device)
-    grad = torch.autograd.grad(y, [x], grad_outputs=grad_outputs, retain_graph=retain_graph, create_graph=create_graph)[0]
-    return grad
-
-def extract_fields(bound_min, bound_max, resolution, query_func, gradient_func = None):
-    N = 64
-    X = torch.linspace(bound_min[0], bound_max[0], resolution).split(N)
-    Y = torch.linspace(bound_min[1], bound_max[1], resolution).split(N)
-    Z = torch.linspace(bound_min[2], bound_max[2], resolution).split(N)
-
-    u = np.zeros([resolution, resolution, resolution], dtype=np.float32)
-    with torch.no_grad():
-        for xi, xs in enumerate(X):
-            for yi, ys in enumerate(Y):
-                for zi, zs in enumerate(Z):
-                    xx, yy, zz = torch.meshgrid(xs, ys, zs)
-                    pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)
-                    if gradient_func is not None:
-                        with torch.enable_grad():
-                            gradients = gradient_func(pts)
-                        val = query_func(pts, gradients).reshape(len(xs), len(ys), len(zs)).detach().cpu().numpy()
-                    else:
-                        val = query_func(pts).reshape(len(xs), len(ys), len(zs)).detach().cpu().numpy()
-                    u[xi * N: xi * N + len(xs), yi * N: yi * N + len(ys), zi * N: zi * N + len(zs)] = val
-    return u
-
-
-def extract_geometry(bound_min, bound_max, resolution, threshold, query_func, gradient_func = None):
-    print('threshold: {}'.format(threshold))
-    u = extract_fields(bound_min, bound_max, resolution, query_func, gradient_func)
-    vertices, triangles = mcubes.marching_cubes(u, threshold)
-    b_max_np = bound_max.detach().cpu().numpy()
-    b_min_np = bound_min.detach().cpu().numpy()
-
-    vertices = vertices / (resolution - 1.0) * (b_max_np - b_min_np)[None, :] + b_min_np[None, :]
-    return vertices, triangles
-
-
-def sample_pdf(bins, weights, n_samples, det=False):
-    # This implementation is from NeRF
-    # Get pdf
-    weights = weights + 1e-5  # prevent nans
-    pdf = weights / torch.sum(weights, -1, keepdim=True)
-    cdf = torch.cumsum(pdf, -1)
-    cdf = torch.cat([torch.zeros_like(cdf[..., :1]), cdf], -1)
-    # Take uniform samples
-    if det:
-        u = torch.linspace(0. + 0.5 / n_samples, 1. - 0.5 / n_samples, steps=n_samples)
-        u = u.expand(list(cdf.shape[:-1]) + [n_samples])
-    else:
-        u = torch.rand(list(cdf.shape[:-1]) + [n_samples])
-
-    # Invert CDF
-    u = u.contiguous().to(cdf)
-    inds = torch.searchsorted(cdf, u, right=True)
-    below = torch.max(torch.zeros_like(inds - 1), inds - 1)
-    above = torch.min((cdf.shape[-1] - 1) * torch.ones_like(inds), inds)
-    inds_g = torch.stack([below, above], -1)  # (batch, N_samples, 2)
-
-    matched_shape = [inds_g.shape[0], inds_g.shape[1], cdf.shape[-1]]
-    cdf_g = torch.gather(cdf.unsqueeze(1).expand(matched_shape), 2, inds_g)
-    bins_g = torch.gather(bins.unsqueeze(1).expand(matched_shape), 2, inds_g)
-
-    denom = (cdf_g[..., 1] - cdf_g[..., 0])
-    denom = torch.where(denom < 1e-5, torch.ones_like(denom), denom)
-    t = (u - cdf_g[..., 0]) / denom
-    samples = bins_g[..., 0] + t * (bins_g[..., 1] - bins_g[..., 0])
-
-    return samples
-
 
 class IDHRenderer:
     def __init__(self,
@@ -159,7 +83,7 @@ class IDHRenderer:
         dirs = dirs / (norm + 1e-12)
         return dirs
 
-    def deform_dirs(self, ray_dirs, points_cnl, transforms_bwd):
+    def deform_dirs(self, ray_dirs, points_cnl, transforms_bwd): ## TODO confirm whether the implement is right or not.
         N_rays, N_samples, _ = points_cnl.shape
         ray_dirs = torch.tile(ray_dirs[:, None, :], [1, N_samples, 1])
         dirs_cnl = torch.matmul(transforms_bwd[..., :3, :3].squeeze(), -ray_dirs.view(-1, 3, 1))
@@ -335,7 +259,6 @@ class IDHRenderer:
             'pts_W_pred': pts_W_pred,
             "pts_W_sampled": pts_W_sampled
         }
-    
     
     def render(self, data, iter_step, cos_anneal_ratio=0.0, sdf_decoder=None):
         # unpack data
@@ -659,14 +582,4 @@ class IDHRenderer:
             trimesh.Trimesh(points_newa[0].detach().cpu().numpy()).export("tvpose_vertices_from_posed.obj")
             
         return points_new, transforms_fwd, transforms_bwd, pts_W
-        
-    def extract_geometry(self, bound_min, bound_max, resolution, threshold=0.0):
-        query_func = lambda pts: -self.sdf_network.sdf(pts)
-        gradient_func = None
-        return extract_geometry(bound_min,
-                                bound_max,
-                                resolution=resolution,
-                                threshold=threshold,
-                                query_func=query_func,
-                                gradient_func=gradient_func)
         
