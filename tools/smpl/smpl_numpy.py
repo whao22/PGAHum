@@ -5,9 +5,9 @@ from cv2 import Rodrigues as rodrigues
 
 
 class SMPL():
-    def __init__(self, sex, model_dir):
+    def __init__(self, sex, model_dir, num_betas=10):
         super(SMPL, self).__init__()
-
+        self.num_betas = num_betas
         model_path = os.path.join(model_dir, sex, 'model.pkl')
 
         with open(model_path, 'rb') as f:
@@ -24,7 +24,7 @@ class SMPL():
         self.parent = np.array([id_to_col[self.kintree_table[0, it]] for it in range(1, self.kintree_table.shape[1])])
 
         self.pose_shape = [24, 3]
-        self.beta_shape = [10]
+        self.beta_shape = [self.num_betas]
         self.pose = np.zeros(self.pose_shape)
         self.beta = np.zeros(self.beta_shape)
 
@@ -35,7 +35,7 @@ class SMPL():
     def __call__(self, pose, beta):
 
         v_template = self.v_template              # (6890, 3)
-        shapedirs = self.shapedirs.reshape(-1,10) # (6890, 10)
+        shapedirs = self.shapedirs.reshape(-1, self.num_betas) # (6890, 10)
         beta = beta[:, None]                      # (10, 1)
 
         v_shaped = shapedirs.dot(beta).reshape(6890, 3) + v_template # (6890, 3)

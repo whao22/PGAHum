@@ -48,7 +48,7 @@ if  __name__ == '__main__':
         "cnl_grid_sdf": torch.from_numpy(smpl_sdf['sdf_grid']).float().to(device),
     }
     print("Start extract geometry ...")
-    vertices, triangles = extract_geometry(bound_min, bound_max, resolution, threshold, sdf_network, sdf_kwargs, device)
+    vertices, triangles = extract_geometry(bound_min, bound_max, resolution, threshold, sdf_network, sdf_kwargs, device=device)
     
     mesh_dir = os.path.join(out_dir, 'meshes')
     os.makedirs(mesh_dir, exist_ok=True)

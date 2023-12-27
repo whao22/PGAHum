@@ -2,7 +2,7 @@
 #SBATCH --job-name=hfavatar
 #SBATCH --ntasks=8
 #SBATCH --cpus-per-task=9
-#SBATCH --mem=128G
+#SBATCH --mem=256G
 #SBATCH --partition=gpujl
 #SBATCH --gres=gpu:4
 
@@ -18,7 +18,7 @@ gpustat
 
 # user_comment=''
 # user_comment='w/_inner-w/_init_sdf-rgb50-lpip5-eik0.1'
-user_comment='w/_inner-w/_init_sdf-w/_tri'
+user_comment='w/o_inner-w/o_patch'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"

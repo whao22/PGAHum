@@ -37,7 +37,8 @@ if __name__ == '__main__':
         batch_size=conf.train.batch_size,
         num_workers=conf.train.num_workers,
         shuffle=True)
-
+    # for i in train_dloader:
+    #     print(i)
     val_dloader = DataLoader(
         module_config.get_dataset('val', conf),
         batch_size=conf.train.batch_size,

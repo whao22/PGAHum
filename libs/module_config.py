@@ -1,5 +1,6 @@
 # import libs.datasets as data
 from libs.datasets.zjumocap import ZJUMoCapDataset
+from libs.datasets.zjumocap_init import ZJUMoCapDatasetInit
 from libs.datasets.zjumocap_odp import ZJUMoCapDataset_ODP
 from libs.hfavatar import HFAvatar
 from libs.models.siren_modules import HyperBVPNet
