@@ -8,7 +8,7 @@ from libs.utils.MCAcc import GridSamplerMine3dFunction
 # from libs.utils.grid_sample_3d import grid_sample_3d
 # from libs.utils.ops.grid_sample import grid_sample_3d as grid_sample_3d_cuda
 
-def sample_sdf_from_grid(points, cnl_grid_sdf, cnl_bbmin, cnl_bbmax):
+def sample_sdf_from_grid(points, cnl_grid_sdf, cnl_bbmin, cnl_bbmax, **kwargs):
     ori_shape = points.shape
     if len(points.shape) == 2:
         points = points.unsqueeze(0)
