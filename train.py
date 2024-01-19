@@ -96,7 +96,7 @@ if __name__ == '__main__':
             del ckpt
 
         validate_every = max_epochs + 1
-        
+    
     trainer = pl.Trainer(logger=logger,
                         log_every_n_steps=conf.train.log_every_step,
                         default_root_dir=conf.general.base_exp_dir,

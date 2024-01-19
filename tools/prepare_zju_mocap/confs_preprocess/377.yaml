@@ -6,7 +6,7 @@ dataset:
   start_frame: 0
   end_frame: -1
   scale_ratio: 1 # use for scale the subject into an unit sphere
-  preprocess_views: [1]
+  preprocess_views: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
   multi_view: True
   use_smpl_sdf: True
   bbox_margin: 0.05

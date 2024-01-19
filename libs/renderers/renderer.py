@@ -338,15 +338,17 @@ class IDHRenderer:
             trimesh.Trimesh(points_newa[0].detach().cpu().numpy()).export("tvpose_vertices_from_tpose.obj")
             
         if self.inner_sampling:
-            N_extra = N_samples // 8
-            z_vals_dist = (z_vals[:,-1:] - z_vals[:, :1])/(N_samples-1) # (N_rays, 1)
-            extra_z_vals_near = torch.tile(-z_vals_dist, [1, N_extra])
-            extra_z_vals_near = torch.cumsum(extra_z_vals_near, dim=-1).flip(dims=[-1]) + z_vals[:, :1] # (N_rays, N_extra)
-            extra_z_vals_far = torch.tile(z_vals_dist, [1, N_extra])
-            extra_z_vals_far = torch.cumsum(extra_z_vals_far, dim=-1) + z_vals[:, -1:] # (N_rays, N_extra)
-            z_vals = torch.concat([extra_z_vals_near, z_vals, extra_z_vals_far], dim=-1) # (N_rays, N_samples + 2*N_extra)
-            self.n_samples = N_samples + 2 * N_extra
-            N_samples = self.n_samples 
+            if True:
+                # additionally sample more points in rays
+                N_extra = N_samples // 8
+                z_vals_dist = (z_vals[:,-1:] - z_vals[:, :1])/(N_samples-1) # (N_rays, 1)
+                extra_z_vals_near = torch.tile(-z_vals_dist, [1, N_extra])
+                extra_z_vals_near = torch.cumsum(extra_z_vals_near, dim=-1).flip(dims=[-1]) + z_vals[:, :1] # (N_rays, N_extra)
+                extra_z_vals_far = torch.tile(z_vals_dist, [1, N_extra])
+                extra_z_vals_far = torch.cumsum(extra_z_vals_far, dim=-1) + z_vals[:, -1:] # (N_rays, N_extra)
+                z_vals = torch.concat([extra_z_vals_near, z_vals, extra_z_vals_far], dim=-1) # (N_rays, N_samples + 2*N_extra)
+                self.n_samples = N_samples + 2 * N_extra
+                N_samples = self.n_samples
         else:
             # calculate depth in rays
             sample_dist = 2.0 / self.n_samples   # Assuming the region of interest is a unit sphere
@@ -472,16 +474,18 @@ class IDHRenderer:
         points = points.reshape(1, -1, 3) # # (1, N_points, 3)
         points_cnl, transforms_fwd, transforms_bwd, pts_W_sampled = self.backward_lbs_knn(points, dst_gtfms, **deform_kwargs) # (1, N_points, 3)
         
-        # iterative backward deformation
-        pts_W_pred = self.query_weights(points_cnl) # (1, N_points, 24)
+        # if N_iter_backward >= 1, use iterative backward deformation
         for i in range(self.N_iter_backward):
-            points_cnl, transforms_bwd, transforms_fwd = self.backward_lbs_nn(points, pts_W_pred, dst_gtfms, inverse=False) # (1, N_points, 3)
             pts_W_pred = self.query_weights(points_cnl) # (1, N_points, 24)
+            points_cnl, transforms_bwd, transforms_fwd = self.backward_lbs_nn(points, pts_W_pred, dst_gtfms, inverse=False) # (1, N_points, 3)
         
-        points_cnl = points_cnl.view(-1, 3) # (N_points, 3)
-        non_rigid_embed_xyz = non_rigid_pos_embed_fn(points_cnl)
-        non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < non_rigid_kick_in_iter else dst_posevec # (1, 69)
-        points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=points_cnl, condition_code=non_rigid_mlp_input)['xyz']
+        # if N_iter_backward <= 0, not use iterative backward deformation
+        if self.N_iter_backward <= 0:
+            pts_W_pred = None
+            points_cnl = points_cnl.view(-1, 3) # (N_points, 3)
+            non_rigid_embed_xyz = non_rigid_pos_embed_fn(points_cnl)
+            non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < non_rigid_kick_in_iter else dst_posevec # (1, 69)
+            points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=points_cnl, condition_code=non_rigid_mlp_input)['xyz']
         
         return points_cnl.reshape(N_rays, N_samples, 3), pts_W_pred, pts_W_sampled, transforms_fwd, transforms_bwd,
 

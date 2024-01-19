@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=hfavatar
-#SBATCH --ntasks=8
-#SBATCH --cpus-per-task=9
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=72
 #SBATCH --mem=256G
 #SBATCH --partition=gpujl
 #SBATCH --gres=gpu:4
@@ -16,16 +16,15 @@ gpustat
 ################################################################
 ##################### CUSTOM SCRIPTS START #####################
 
-# user_comment=''
-# user_comment='w/_inner-w/_init_sdf-rgb50-lpip5-eik0.1'
-user_comment='w/o_inner-w/o_patch'
+user_comment='w/_inner-w/o_init_sdf-w/_patch-rgb50-lpip5-eik0.1'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
+conf="confs/hfavatar-zju/ZJUMOCAP-377-4gpus.conf"
 echo The base experiment directory is ${base_exp_dir}.
 
 python train.py \
-    --conf confs/hfavatar-zju/ZJUMOCAP-377-mono-4gpus.conf  \
+    --conf ${conf} \
     --base_exp_dir ${base_exp_dir} \
     --run_name ${run_name}
 

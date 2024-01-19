@@ -14,6 +14,7 @@ import torch.nn as nn
 
 from libs.utils import pytorch_ssim
 from libs.utils.general_utils import augm_rots, sample_sdf_from_grid
+from libs.utils.metrics import psnr_metric, ssim_metric, lpips_metric
 
 from libs.renderers.renderer import IDHRenderer
 from libs.renderers.loss import IDHRLoss
@@ -26,7 +27,15 @@ def mse2psnr(mse):
     mse = np.maximum(mse, 1e-10)  # avoid -inf or nan when mse is very small.
     psnr = -10.0 * np.log10(mse)
     return psnr.astype(np.float32)
-    
+
+def set_requires_grad(nets, requires_grad=False):
+    if not isinstance(nets, list):
+        nets = [nets]
+    for net in nets:
+        if net is not None:
+            for param in net.parameters():
+                param.requires_grad = requires_grad
+                
 class HFAvatar(pl.LightningModule):
     def __init__(self, 
                 conf, 
@@ -69,8 +78,11 @@ class HFAvatar(pl.LightningModule):
         
         # Loss Function
         rgb_loss_type = conf['train.rgb_loss_type']
+        self.lpips = lpips.LPIPS(net='vgg')
+        set_requires_grad(self.lpips, requires_grad=False)
         self.criteria = IDHRLoss(**conf['train.weights'],
-                                 rgb_loss_type=rgb_loss_type)
+                                 rgb_loss_type=rgb_loss_type,
+                                 lpips = self.lpips)
         
         # Networks
         self.pose_decoder = pose_decoder
@@ -188,7 +200,7 @@ class HFAvatar(pl.LightningModule):
             out_rgb_fine = []
             out_normal_fine = []
 
-            for i in tqdm(range(n_batches)):
+            for i in range(n_batches):
                 data_batch = data.copy()
                 data_batch['batch_rays'] = data_batch['batch_rays'][:, i*self.N_rays:(i+1)*self.N_rays]
                 if self.inner_sampling:
@@ -215,23 +227,6 @@ class HFAvatar(pl.LightningModule):
             
             if len(out_rgb_fine) > 0:
                 img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3, -1]) * 256).clip(0, 255)
-                if self.resolution_level == 1:
-                    color_fine = torch.from_numpy(np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3])).to(self.device)
-                    true_rgb = self.dataset.images[idx].to(self.device)
-                    color_error = color_fine - true_rgb
-                    color_fine_loss = F.l1_loss(color_error, torch.zeros_like(color_error), reduction='mean')
-                    outstr = '{0:4d} img: loss: {1:.2f}\n'.format(idx, color_fine_loss)
-                    print(outstr)
-                    f = os.path.join(self.base_exp_dir, 'logs', 'image_metric.txt')
-                    with open(f, 'a') as file:
-                        file.write(outstr)
-                    mse = F.mse_loss(color_fine, true_rgb).item()
-                    psnr = mse2psnr(mse)
-                    ssim = pytorch_ssim.ssim(color_fine.permute(2, 0, 1).unsqueeze(0), true_rgb.permute(2, 0, 1).unsqueeze(0)).item()
-                    print(outstr)
-                    f = os.path.join(self.base_exp_dir, 'logs', 'image_metric.txt')
-                    with open(f, 'a') as file:
-                        file.write(outstr)
 
             normal_img = None
             if len(out_normal_fine) > 0:
@@ -239,9 +234,6 @@ class HFAvatar(pl.LightningModule):
                 rot = np.linalg.inv(E[:3,:3].detach().cpu().numpy())
                 normal_img = (np.matmul(rot[None, :, :], normal_img[:, :, None])
                             .reshape([H, W, 3, -1]) * 128 + 128).clip(0, 255)
-                # maxv = normal_img.max()
-                # normal_img = (normal_img[:, :, None]
-                #               .reshape([H, W, 3, -1]) / maxv * 256).clip(0, 255)
 
             for i in range(img_fine.shape[-1]):
                 if len(out_rgb_fine) > 0:
@@ -269,8 +261,9 @@ class HFAvatar(pl.LightningModule):
             n_batches = int(data['batch_rays'].size(1) / self.N_rays)
             out_rgb_fine = []
             out_normal_fine = []
+            metrics_dict = {}
 
-            for i in tqdm(range(n_batches)):
+            for i in range(n_batches):
                 data_batch = data.copy()
                 data_batch['batch_rays'] = data_batch['batch_rays'][:, i*self.N_rays:(i+1)*self.N_rays]
                 if self.inner_sampling:
@@ -291,41 +284,40 @@ class HFAvatar(pl.LightningModule):
                 torch.cuda.empty_cache()
                 del render_out
                 del data_batch
-
+        
+        with torch.no_grad():
             img_fine = None
+            normal_img = None
             H, W, E = data['height'].squeeze(), data['width'].squeeze(), data['extrinsic'].squeeze()
             img_true = data['batch_rays'][..., 6:9].reshape(H,W,3).squeeze()
             
             if len(out_rgb_fine) > 0:
                 img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3, -1]) * 256).clip(0, 255)
                 if self.resolution_level == 1:
-                    color_fine = torch.from_numpy(np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3])).to(self.device)
-                    true_rgb = self.dataset.images[idx].to(self.device)
-                    color_error = color_fine - true_rgb
-                    color_fine_loss = F.l1_loss(color_error, torch.zeros_like(color_error), reduction='mean')
-                    outstr = '{0:4d} img: loss: {1:.2f}\n'.format(idx, color_fine_loss)
-                    print(outstr)
-                    f = os.path.join(self.base_exp_dir, 'logs', 'image_metric.txt')
-                    with open(f, 'a') as file:
-                        file.write(outstr)
-                    mse = F.mse_loss(color_fine, true_rgb).item()
+                    bbox_mask = data['bbox_mask'].squeeze().detach().cpu().numpy() # (H, W), ndarray
+                    x, y, w, h = cv2.boundingRect(bbox_mask.astype(np.uint8))
+                    
+                    color_pred = torch.from_numpy(np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3])).to(img_true) # (H, W, 3), ndarray
+                    color_trgt = img_true.clone() # (H, W, 3), ndarray
+                    color_pred = color_pred[y:y+h, x:x+w]
+                    color_trgt = color_trgt[y:y+h, x:x+w]
+                    
+                    mse = F.mse_loss(color_pred, color_trgt).item()
                     psnr = mse2psnr(mse)
-                    ssim = pytorch_ssim.ssim(color_fine.permute(2, 0, 1).unsqueeze(0), true_rgb.permute(2, 0, 1).unsqueeze(0)).item()
-                    print(outstr)
-                    f = os.path.join(self.base_exp_dir, 'logs', 'image_metric.txt')
-                    with open(f, 'a') as file:
-                        file.write(outstr)
+                    ssim = pytorch_ssim.ssim(color_pred.permute(2, 0, 1).unsqueeze(0), color_trgt.permute(2, 0, 1).unsqueeze(0)).item()
+                    lpips = self.lpips(color_pred.permute(2, 0, 1).unsqueeze(0), color_trgt.permute(2, 0, 1).unsqueeze(0)).item()
+                    metrics_dict.update({
+                        'psnr': psnr,
+                        'ssim': ssim,
+                        'lpips': lpips
+                    })
 
-            normal_img = None
             if len(out_normal_fine) > 0:
                 normal_img = np.concatenate(out_normal_fine, axis=0)
                 rot = np.linalg.inv(E[:3,:3].detach().cpu().numpy())
                 normal_img = (np.matmul(rot[None, :, :], normal_img[:, :, None])
                             .reshape([H, W, 3, -1]) * 128 + 128).clip(0, 255)
-                # maxv = normal_img.max()
-                # normal_img = (normal_img[:, :, None]
-                #               .reshape([H, W, 3, -1]) / maxv * 256).clip(0, 255)
-                
+            
             for i in range(img_fine.shape[-1]):
                 if len(out_rgb_fine) > 0:
                     pred_image = img_fine[..., i]
@@ -339,7 +331,32 @@ class HFAvatar(pl.LightningModule):
                     images=[pred_image, gt_image, mormal_map],
                     caption=["pred image", 'GT image',"normal map"]
             )
+        
+        return metrics_dict
+
+    def _process_validation_epoch_outputs(self, validation_step_outputs):
+        psnr, ssim, lpips = [], [], []
+        
+        for output in validation_step_outputs:
+            if len(output) >= 1:
+                psnr.append(output['psnr'])
+                ssim.append(output['ssim'])
+                lpips.append(output['lpips'])
+
+        return psnr, ssim, lpips
     
+    def validation_epoch_end(self, validation_step_outputs):
+        psnr, ssim, lpips = self._process_validation_epoch_outputs(validation_step_outputs)
+
+        if len(psnr) >= 1:
+            psnr = np.array(psnr).mean()
+            ssim = np.array(ssim).mean()
+            lpips = np.array(lpips).mean()
+            
+            self.log('PSNR', psnr, logger=True, batch_size=self.batch_size)
+            self.log('SSIM', ssim, logger=True, batch_size=self.batch_size)
+            self.log('LPIPS', lpips, logger=True, batch_size=self.batch_size)
+        
     def update_learning_rate(self, optimizer):
         decay_rate = 0.1
         decay_steps = self.warm_up_end * 1000

@@ -2,6 +2,7 @@
 from libs.datasets.zjumocap import ZJUMoCapDataset
 from libs.datasets.zjumocap_init import ZJUMoCapDatasetInit
 from libs.datasets.zjumocap_odp import ZJUMoCapDataset_ODP
+from libs.datasets.zjumocap_mvs import ZJUMoCapDataset_MVS
 from libs.hfavatar import HFAvatar
 from libs.models.siren_modules import HyperBVPNet
 from libs.models.deform import Deformer
@@ -152,6 +153,7 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
     N_samples = cfg.model.neus_renderer.n_samples
     inner_sampling = cfg.dataset.inner_sampling
     res_level = cfg.dataset.res_level
+    use_dilated = cfg.dataset.use_dilated
     
     splits = {
         'train': cfg.dataset.train_split,
@@ -193,7 +195,7 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
         end_frame = end_frames[mode]
     
     if dataset_type == 'zju_mocap':
-        dataset = ZJUMoCapDataset(
+        dataset = ZJUMoCapDataset_MVS(
             dataset_folder=dataset_folder,
             subjects=split,
             mode=mode,
@@ -211,6 +213,7 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
             N_samples=N_samples,
             inner_sampling=inner_sampling,
             res_level=res_level,
+            use_dilated=use_dilated,
         )
     elif dataset_type == 'zju_mocap_odp':
         new_pose_mode = cfg.dataset.new_pose_mode

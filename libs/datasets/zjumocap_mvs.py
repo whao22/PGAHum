@@ -20,7 +20,7 @@ from libs.utils.camera_utils import \
     rays_intersect_3d_bbox
 
 
-class ZJUMoCapDataset(torch.utils.data.Dataset):
+class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
     def __init__(self, 
                  dataset_folder='data/data_prepared',
                  subjects=['CoreView_313'],
@@ -29,7 +29,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
                  start_frame=0,
                  end_frame=-1,
                  sampling_rate=1,
-                 views=[],
+                 views=[0, 6, 12, 18],
                  box_margin=0.05,
                  ray_shoot_mode='default',
                  backgroung_color=None,
@@ -41,11 +41,11 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
                  res_level=4,
                  use_dilated=False):
         assert len(subjects) == 1, 'SINGLE PERSON! Please make sure the length of subjects list is one.'
-        assert len(views) == 1, 'MONOCULAR! Please make sure the length of views list is one.'
         
         # meta data
         self.use_dilated = use_dilated
         self.mode = mode
+        self.views = views
         self.patch_size = patch_size
         self.N_patches = N_patches
         self.sample_subject_ratio = sample_subject_ratio
@@ -57,38 +57,40 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         self.ray_shoot_mode = ray_shoot_mode
         self.bbox_offset=box_margin
         self.resize_img_scale=resize_img_scale
-        
         self.dataset_path = os.path.join(dataset_folder, subjects[0])
-        self.image_dir = os.path.join(self.dataset_path, views[0], 'images')
-        self.mask_dir = os.path.join(self.dataset_path, views[0], 'masks')
-        self.camera_info_dir = os.path.join(self.dataset_path, views[0])
         
         # load data
-        self.canonical_joints, self.canonical_bbox = \
-            self.load_canonical_joints()
+        self.canonical_joints, self.canonical_bbox = self.load_canonical_joints()
         self.gtfs_02v = get_02v_bone_transforms(self.canonical_joints)
         self.cnl_gtfms = get_canonical_global_tfms(self.canonical_joints) # (24, 4, 4)
-        self.cameras = self.load_train_cameras()
         self.mesh_infos = self.load_train_mesh_infos()
-        self.framelist = self.load_train_frames()[start_frame:end_frame:sampling_rate]
-        self.n_images = len(self.framelist)
-        
+        self.smpl_sdf = self.load_smpl_sdf()
+        self.cameras_dict = self.load_train_cameras()
+        self.framelist_dict, self.nframes_dict, self.nframes_total = \
+                self.load_train_frames(start_frame, end_frame, sampling_rate)
         self.faces = np.load('data/body_models/misc/faces.npz')['faces']
         self.skinning_weights = dict(np.load('data/body_models/misc/skinning_weights_all.npz'))
         self.posedirs = dict(np.load('data/body_models/misc/posedirs_all.npz'))
         self.J_regressor = dict(np.load('data/body_models/misc/J_regressors.npz'))
-        self.smpl_sdf = np.load(os.path.join(self.dataset_path, 'smpl_sdf.npy'), allow_pickle=True).item()
         
-        images, masks = [], []
-        for fname in tqdm(self.framelist):
-            image, mask = self.load_image_mask(fname, self.bgcolor) # (H, W, 3) (H, W, 1)
-            images.append(image/255)
-            masks.append(mask)
-        self.images_np = np.stack(images).astype(np.float32) # (n_images, H, W, 3)
-        self.masks_np = np.stack(masks).astype(np.float32) # (n_images, H, W, 1)
+        images, masks = {}, {}
+        for view in self.views:
+            framelist = self.framelist_dict[view]
+            images_list, masks_list = [], []
+            for fname in tqdm(framelist):
+                image, mask = self.load_image_mask(view, fname, self.bgcolor) # (H, W, 3) (H, W, 1)
+                images_list.append(image/255)
+                masks_list.append(mask)
+            images[view] = np.stack(images_list).astype(np.float32) # (n_images, H, W, 3)
+            masks[view] = np.stack(masks_list).astype(np.float32) # (n_images, H, W, 1)
+        self.images_np_dict = images
+        self.masks_np_dict = masks
         
         print(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
-
+        
+    def load_smpl_sdf(self):
+        return np.load(os.path.join(self.dataset_path, 'smpl_sdf.npy'), allow_pickle=True).item()
+    
     def load_canonical_joints(self):
         cl_joint_path = os.path.join(self.dataset_path, 'canonical_joints.pkl')
         with open(cl_joint_path, 'rb') as f:
@@ -101,10 +103,13 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         return canonical_joints, canonical_bbox
 
     def load_train_cameras(self):
-        cameras = None
-        with open(os.path.join(self.camera_info_dir, 'cameras.pkl'), 'rb') as f: 
-            cameras = pickle.load(f)
-        return cameras
+        cameras_dict = {}
+        for view in self.views:
+            camera_info_dir = os.path.join(self.dataset_path, view)
+            with open(os.path.join(camera_info_dir, 'cameras.pkl'), 'rb') as f: 
+                cameras_data = pickle.load(f)
+            cameras_dict[view] = cameras_data
+        return cameras_dict
 
     def skeleton_to_bbox(self, skeleton):
         min_xyz = np.min(skeleton, axis=0) - self.bbox_offset
@@ -136,10 +141,17 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
 
         return mesh_infos
 
-    def load_train_frames(self):
-        img_paths = list_files(self.image_dir,
-                               exts=['.png'])
-        return [split_path(ipath)[1] for ipath in img_paths]
+    def load_train_frames(self, start_frame, end_frame, sampling_rate):
+        img_path_dict = {}
+        nframe_dict = {}
+        nframe_total = 0
+        for view in self.views:
+            image_dir = os.path.join(self.dataset_path, view, 'images')
+            img_paths = list_files(image_dir, exts=['.png'])
+            img_path_dict[view] = [split_path(ipath)[1] for ipath in img_paths][start_frame:end_frame:sampling_rate]
+            nframe_dict[view] = len(img_path_dict[view])
+            nframe_total += len(img_path_dict[view])
+        return img_path_dict, nframe_dict, nframe_total
     
     def query_dst_skeleton(self, frame_name):
         return {
@@ -155,17 +167,17 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
             'dilated_triangles': self.mesh_infos[frame_name]['dilated_triangles'].copy(),
         }
     
-    def load_image_mask(self, frame_name, bg_color):
-        imagepath = os.path.join(self.image_dir, '{}.png'.format(frame_name))
+    def load_image_mask(self, view, frame_name, bg_color):
+        imagepath = os.path.join(self.dataset_path, view, 'images', '{}.png'.format(frame_name))
         orig_img = np.array(load_image(imagepath))
 
-        maskpath = os.path.join(self.mask_dir,'{}.png'.format(frame_name))
+        maskpath = os.path.join(self.dataset_path, view, 'masks','{}.png'.format(frame_name))
         alpha_mask = np.array(load_image(maskpath))[...,:1]
         
         # undistort image
-        if frame_name in self.cameras and 'distortions' in self.cameras[frame_name]:
-            K = self.cameras[frame_name]['intrinsics']
-            D = self.cameras[frame_name]['distortions']
+        if frame_name in self.cameras_dict[view] and 'distortions' in self.cameras_dict[view][frame_name]:
+            K = self.cameras_dict[view][frame_name]['intrinsics']
+            D = self.cameras_dict[view][frame_name]['distortions']
             orig_img = cv2.undistort(orig_img, K, D)
             alpha_mask = cv2.undistort(alpha_mask, K, D)[..., None]
 
@@ -205,12 +217,24 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         
         return rays_o, rays_d, rays_img, rays_alpha, near, far
 
+    def random_selected_view_idx(self, idx):
+        sel_idx = idx
+        for view in self.views:
+            if sel_idx - self.nframes_dict[view] < 0:
+                sel_view = view
+                break
+            else:
+                sel_idx = sel_idx - self.nframes_dict[view]
+        return sel_view, sel_idx
+    
     def gen_rays_for_infer(self, idx):
+        view, idx = self.random_selected_view_idx(idx)
         res_level = self.res_level
+        
         # get image & mask
-        frame_name = self.framelist[idx]
-        image = self.images_np[idx] # (H, W, 3)
-        alpha = self.masks_np[idx] # (H, W, 1)
+        frame_name = self.framelist_dict[view][idx]
+        image = self.images_np_dict[view][idx] # (H, W, 3)
+        alpha = self.masks_np_dict[view][idx] # (H, W, 1)
         H, W = image.shape[0:2]
 
         # dst skeleton info
@@ -222,10 +246,10 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         dst_Rs, dst_Ts = body_pose_to_body_RTs(dst_poses, dst_tpose_joints) # (24, 3, 3) (24, 3)
 
         # calculate K, E, T
-        assert frame_name in self.cameras
-        K = self.cameras[frame_name]['intrinsics'][:3, :3].copy()
+        assert frame_name in self.cameras_dict[view]
+        K = self.cameras_dict[view][frame_name]['intrinsics'][:3, :3].copy()
         K[:2] *= self.resize_img_scale
-        E = self.cameras[frame_name]['extrinsics'].astype(np.float32)
+        E = self.cameras_dict[view][frame_name]['extrinsics'].astype(np.float32)
         E = apply_global_tfm_to_camera(
                 E=E,
                 Rh=dst_skel_info['Rh'],
@@ -297,10 +321,12 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         return results
     
     def gen_rays_for_train(self, idx):
+        view, idx = self.random_selected_view_idx(idx)
+        
         # get image & mask
-        frame_name = self.framelist[idx]
-        image = self.images_np[idx] # (H, W, 3)
-        alpha = self.masks_np[idx] # (H, W, 1)
+        frame_name = self.framelist_dict[view][idx]
+        image = self.images_np_dict[view][idx] # (H, W, 3)
+        alpha = self.masks_np_dict[view][idx] # (H, W, 1)
         H, W = image.shape[0:2]
 
         # dst skeleton info
@@ -313,11 +339,11 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         dst_Rs, dst_Ts = body_pose_to_body_RTs(dst_poses, dst_tpose_joints) # (24, 3, 3) (24, 3)
         
         # calculate K, E, T
-        assert frame_name in self.cameras
-        K = self.cameras[frame_name]['intrinsics'][:3, :3].copy()
+        assert frame_name in self.cameras_dict[view]
+        K = self.cameras_dict[view][frame_name]['intrinsics'][:3, :3].copy()
         K[:2] *= self.resize_img_scale
 
-        E = self.cameras[frame_name]['extrinsics'].copy()
+        E = self.cameras_dict[view][frame_name]['extrinsics'].copy()
         E = apply_global_tfm_to_camera(
                 E=E, 
                 Rh=dst_skel_info['Rh'],
@@ -420,7 +446,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         return results
     
     def __len__(self):
-        return len(self.framelist)
+        return self.nframes_total
     
     def __getitem__(self, idx):
         if self.mode in ['test','val']:

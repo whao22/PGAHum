@@ -1,11 +1,17 @@
 dataset:
-  zju_mocap_path: ../../dataset/zju_mocap
+  zju_mocap_path: data
   subject: '387'
   sex: 'neutral'
-
-training_view: 0
-max_frames: 540
+  model_path: 'data/body_models/smpl'
+  start_frame: 0
+  end_frame: 10
+  scale_ratio: 1 # use for scale the subject into an unit sphere
+  preprocess_views: [0]
+  multi_view: True
+  use_smpl_sdf: True
+  bbox_margin: 0.05
+  volume_size: 512
 
 output:
-  dir: ../../dataset/zju_mocap
-  name: '387'
+  dir: data/data_prepared
+  name: 'CoreView_387'

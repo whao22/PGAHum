@@ -8,6 +8,7 @@ out
 output
 build
 dist
+slurm_logs
 
 *so
 *pkl
@@ -16,3 +17,4 @@ dist
 *out
 *obj
 *zip
+*ply

@@ -9,11 +9,12 @@ import numpy as np
 from tqdm import tqdm
 import mesh2sdf
 import trimesh
-
+import mcubes
 from libs.utils.images_utils import load_image, save_image, to_3ch_image
 from libs.utils.file_utils import split_path
 from libs.utils.general_utils import get_02v_bone_transforms
 from tools.smpl.smpl_numpy import SMPL
+from libs.utils.geometry_utils import extract_geometry
 
 def prepare_dir(output_path, name):
     out_dir = os.path.join(output_path, name)
@@ -184,10 +185,26 @@ def main(cfg):
             'Th': Th,
             'poses': poses,
             'beats': betas,
-            'posed_vertices': posed_vertices * scale_ratio,
+            'posed_vertices': posed_vertices * scale_ratio, 
             'joints': joints * scale_ratio,
         }
+        
+        # dilate mesh
+        sdf_resolution = 64
+        delta_sdf = 0.03
+        posed_sdf_dict = prepare_smpl_sdf(posed_vertices, sdf_resolution)
+        posed_sdf_grid = posed_sdf_dict['sdf_grid'] - delta_sdf
+        posed_bbmax = posed_sdf_dict['bbmax']
+        posed_bbmin = posed_sdf_dict['bbmin']
+        
+        dilated_vertices, dilated_triangles = mcubes.marching_cubes(posed_sdf_grid, 0.)    
+        dilated_vertices = dilated_vertices / sdf_resolution * (posed_bbmax - posed_bbmin) + posed_bbmin
 
+        mesh_infos[out_name].update({
+            'dilated_triangles': dilated_triangles,
+            'dilated_vertices': dilated_vertices * scale_ratio,
+        })
+    
     # write mesh infos
     with open(os.path.join(output_path, 'mesh_infos.pkl'), 'wb') as f:
         pickle.dump(mesh_infos, f)

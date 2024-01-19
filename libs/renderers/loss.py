@@ -3,13 +3,7 @@ import lpips
 from torch import nn
 from torch.nn import functional as F
 
-def set_requires_grad(nets, requires_grad=False):
-    if not isinstance(nets, list):
-        nets = [nets]
-    for net in nets:
-        if net is not None:
-            for param in net.parameters():
-                param.requires_grad = requires_grad
+
 
 class IDHRLoss(nn.Module):
     ''' Loss class for Implicit Differentiable Human Renderer (IDHR) '''
@@ -22,7 +16,8 @@ class IDHRLoss(nn.Module):
                  skinning_weight=0.,
                  params_weight=0.,
                  pose_refine_weight=0.,
-                 rgb_loss_type='l1',):
+                 rgb_loss_type='l1',
+                 lpips = None):
         """initialize loss class for loss computing. 
 
         Args:
@@ -56,8 +51,7 @@ class IDHRLoss(nn.Module):
             raise ValueError('Unsupported RGB loss type: {}. Only l1, smoothed_l1 and mse are supported'.format(rgb_loss_type))
         
         if self.perceptual_weight > 0.:
-            self.p_loss = lpips.LPIPS(net='vgg')
-            set_requires_grad(self.p_loss, requires_grad=False)
+            self.p_loss = lpips
     
     def scale_for_lpips(self, image_tensor):
         return image_tensor * 2. - 1.
@@ -100,7 +94,7 @@ class IDHRLoss(nn.Module):
         n_params = sdf_params.size(-1)
 
         return sdf_params.norm(dim=-1).mean() / n_params
-    
+
     def forward(self, model_outputs, ground_truth, sdf_params):
         if self.perceptual_weight > 0 :
             color_pre, color_gt = self.unpack_image(model_outputs, ground_truth)
