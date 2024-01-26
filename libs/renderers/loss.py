@@ -122,7 +122,7 @@ class IDHRLoss(nn.Module):
         else:
             loss_pips = torch.zeros(1, device=device)
         
-        if self.skinning_weight > 0:
+        if self.skinning_weight > 0 and pts_w_pre is not None:
             loss_skinning_weights = self.get_skinning_weights_loss(pts_w_pre, pts_w_gt)
         else:
             loss_skinning_weights = torch.zeros(1, device=device)

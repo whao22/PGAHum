@@ -63,11 +63,11 @@ def get_skinning_model(conf, init_weight=True):
         skinning_model.load_state_dict(skinning_decoder_fwd_state_dict, strict=False)
     return skinning_model
 
-def get_model(conf, base_exp_dir, init_weight=True):
+def get_model(conf, base_exp_dir, init_weight=False):
     total_bones = conf['general.total_bones']
     N_frames = conf['dataset.N_frames']
     
-    skinning_model = get_skinning_model(conf, init_weight=init_weight)
+    skinning_model = get_skinning_model(conf, init_weight=True)
     sdf_decoder = get_sdf_decoder(conf, init_weights=init_weight)
     pose_decoder = BodyPoseRefiner(total_bones=total_bones, **conf['model.pose_refiner'])
     motion_basis_computer = MotionBasisComputer(total_bones)

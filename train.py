@@ -70,7 +70,7 @@ if __name__ == '__main__':
                                     project='hf-avatar',
                                     id=run_id,
                                     save_dir=conf.general.base_exp_dir,
-                                    config=conf,
+                                    config=conf.__dict__,
                                     **kwargs)
     
     # Trainer

@@ -58,7 +58,7 @@ class _GridSample2dForward(torch.autograd.Function):
 class _GridSample2dBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, grad_output, input, grid, padding_mode=0, align_corners=True):
-        op = torch._C._jit_get_operation('aten::grid_sampler_2d_backward')
+        op = torch._C._jit_get_operation('aten::grid_sampler_2d_backward')[0]
         if _use_pytorch_1_11_api:
             output_mask = (ctx.needs_input_grad[1], ctx.needs_input_grad[2])
             grad_input, grad_grid = op(grad_output, input, grid, 0, padding_mode, align_corners, output_mask)

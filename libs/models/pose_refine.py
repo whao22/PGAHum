@@ -1,8 +1,6 @@
-import torch.nn as nn
 import torch
-
+import torch.nn as nn
 from libs.utils.network_utils import initseq, RodriguesModule
-
 
 class BodyPoseRefiner(nn.Module):
     def __init__(self,
@@ -12,7 +10,8 @@ class BodyPoseRefiner(nn.Module):
                  total_bones=24,
                  **_):
         super(BodyPoseRefiner, self).__init__()
-        self.progress = torch.nn.Parameter(torch.tensor(0.), requires_grad=False)  # use Parameter so it could be checkpointed
+        
+        self.rodriguez = RodriguesModule()
         
         block_mlps = [nn.Linear(embedding_size, mlp_width), nn.ReLU()]
         
@@ -32,18 +31,10 @@ class BodyPoseRefiner(nn.Module):
         last_layer.weight.data.uniform_(-init_val, init_val)
         last_layer.bias.data.zero_()
 
-        self.rodriguez = RodriguesModule()
-
     def forward(self, pose_input):
-        """_summary_
-
-        Args:
-            pose_input (_type_): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        rvec = self.block_mlps(pose_input).view(-1, 3) # (B*total_bones, 3)
-        Rs = self.rodriguez(rvec).view(-1, self.total_bones, 3, 3) # (B, total_bones, 3, 3)
+        rvec = self.block_mlps(pose_input).view(-1, 3)
+        Rs = self.rodriguez(rvec).view(-1, self.total_bones, 3, 3)
         
-        return {"Rs": Rs}
+        return {
+            "Rs": Rs
+        }

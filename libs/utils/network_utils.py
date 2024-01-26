@@ -138,7 +138,7 @@ class MotionBasisComputer(nn.Module):
         batch_size, TOTAL_BONES, _ = tjoints.shape
         dst_gtfms = torch.zeros_like(cnl_gtfms)
 
-        local_Gs = self._construct_G(dst_Rs, dst_Ts) 
+        local_Gs = self._construct_G(dst_Rs, dst_Ts)
         dst_gtfms[:, 0, :, :] = local_Gs[:, 0, :, :]
 
         for i in range(1, self.total_bones):
@@ -152,18 +152,20 @@ class MotionBasisComputer(nn.Module):
         init_bone = F.pad(init_bone, [3, 0, 0, 0, 0, 0, 0, 0])
         rel_transforms = dst_gtfms - init_bone
         
-        dst_gtfms = dst_gtfms.view(-1, 4, 4)
-        inv_dst_gtfms = torch.inverse(dst_gtfms)
-        
-        cnl_gtfms = cnl_gtfms.view(-1, 4, 4)
-        f_mtx = torch.matmul(cnl_gtfms, inv_dst_gtfms)
-        f_mtx = f_mtx.view(-1, self.total_bones, 4, 4)
+        if False:
+            dst_gtfms = dst_gtfms.view(-1, 4, 4)
+            inv_dst_gtfms = torch.inverse(dst_gtfms)
+            
+            cnl_gtfms = cnl_gtfms.view(-1, 4, 4)
+            f_mtx = torch.matmul(cnl_gtfms, inv_dst_gtfms)
+            f_mtx = f_mtx.view(-1, self.total_bones, 4, 4)
 
-        scale_Rs = f_mtx[:, :, :3, :3]
-        Ts = f_mtx[:, :, :3, 3]
+            scale_Rs = f_mtx[:, :, :3, :3]
+            Ts = f_mtx[:, :, :3, 3]
         
-        return  rel_transforms, scale_Rs, Ts
+            return  rel_transforms, scale_Rs, Ts
 
+        return  rel_transforms
 
 ###############################################################################
 ## Init Functions
