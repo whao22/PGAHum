@@ -4,6 +4,8 @@ from glob import glob
 import wandb
 import logging
 import os
+import numpy as np
+import random
 from pyhocon import ConfigFactory
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
@@ -25,8 +27,16 @@ def parse_arguments():
     logging.basicConfig(level=logging.INFO, format=FORMAT)
     return args
 
+def setup_seed(seed):
+     torch.manual_seed(seed)
+     torch.cuda.manual_seed_all(seed)
+     np.random.seed(seed)
+     random.seed(seed)
+     torch.backends.cudnn.deterministic = True
+
 
 if __name__ == '__main__':
+    setup_seed(42)
     # Args and Conf
     args = parse_arguments()
     conf = ConfigFactory.parse_file(args.conf)

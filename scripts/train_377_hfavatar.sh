@@ -1,4 +1,4 @@
-user_comment='w/_inner-w/o_init_sdf-w/_tri'
+user_comment='w/_inner-w/_init_sdf-w/_tri'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_run_${user_comment}"
 base_exp_dir="exp/${run_name}"

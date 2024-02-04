@@ -454,9 +454,9 @@ class IDHRenderer:
         if refined_Ts is not None:
             dst_Ts = dst_Ts + refined_Ts
         
-        pose_refine_error = None
+        # pose_refine_error = None
         # pose_refine_error = torch.norm(refined_Rs - torch.eye(3,3).to(refined_Rs), p=2)
-        # pose_refine_error = torch.nn.functional.l1_loss(refined_Rs, torch.eye(3,3).to(refined_Rs))
+        pose_refine_error = torch.nn.functional.l1_loss(refined_Rs, torch.eye(3,3).expand_as(refined_Rs).to(refined_Rs))
         return dst_Rs, dst_Ts, pose_refine_error
     
     def deform_points(self, points, dst_posevec=None, iter_step=1, non_rigid_kick_in_iter=1000, dst_gtfms=None, non_rigid_pos_embed_fn=None, **deform_kwargs):
@@ -473,20 +473,21 @@ class IDHRenderer:
         """
         N_rays, N_samples, _ = points.shape
         points = points.reshape(1, -1, 3) # # (1, N_points, 3)
-        points_cnl, transforms_fwd, transforms_bwd, pts_W_sampled = self.backward_lbs_knn(points.clone(), dst_gtfms.clone(), **deform_kwargs) # (1, N_points, 3)
+        points_skl, transforms_fwd, transforms_bwd, pts_W_sampled = self.backward_lbs_knn(points.clone(), dst_gtfms.clone(), **deform_kwargs) # (1, N_points, 3)
         
-        # if N_iter_backward >= 1, use iterative backward deformation
         pts_W_pred = None
-        if iter_step >= non_rigid_kick_in_iter:
+        # if N_iter_backward >= 1, use iterative backward deformation, cnl = points_obs * weights
+        if self.N_iter_backward > 0 and iter_step >= non_rigid_kick_in_iter:
             for i in range(self.N_iter_backward):
-                points_cnl, transforms_fwd, transforms_bwd, pts_W_pred = self.backward_lbs_nn(points.clone(), dst_gtfms.clone()) # (1, N_points, 3)
+                points_skl, transforms_fwd, transforms_bwd, pts_W_pred = self.backward_lbs_nn(points_skl.clone(), points.clone(), dst_gtfms.clone()) # (1, N_points, 3)
+            points_cnl = points_skl
         
-        # if N_iter_backward <= 0, not use iterative backward deformation
-        if self.N_iter_backward <= 0:
-            points_cnl = points_cnl.reshape(-1, 3) # (N_points, 3)
-            non_rigid_embed_xyz = non_rigid_pos_embed_fn(points_cnl)
+        # if N_iter_backward <= 0, not use iterative backward deformation, cnl = points_skl + points_offset
+        elif self.N_iter_backward <= 0:
+            points_skl = points_skl.reshape(-1, 3) # (N_points, 3)
+            non_rigid_embed_xyz = non_rigid_pos_embed_fn(points_skl)
             non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < non_rigid_kick_in_iter else dst_posevec # (1, 69)
-            points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=points_cnl, condition_code=non_rigid_mlp_input)['xyz']
+            points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=points_skl, condition_code=non_rigid_mlp_input)['xyz']
         
         return points_cnl.reshape(N_rays, N_samples, 3), pts_W_pred, pts_W_sampled, transforms_fwd, transforms_bwd,
 
@@ -514,7 +515,7 @@ class IDHRenderer:
 
         return w_ret
 
-    def backward_lbs_nn(self, points, dst_gtfms, inverse=False):
+    def backward_lbs_nn(self, points_cnl, points, dst_gtfms, inverse=False):
         ''' Backward skinning based on neural network predicted skinning weights 
         Args:
             points (tensor): canonical points. shape: [B, N, D]
@@ -526,7 +527,7 @@ class IDHRenderer:
         batch_size, N_points, _ = points.shape
         device = points.device
         
-        pts_weights = self.query_weights(points) # (1, N_points, 24)
+        pts_weights = self.query_weights(points_cnl) # (1, N_points, 24)
         transforms_fwd = torch.matmul(pts_weights, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
         transforms_bwd = torch.inverse(transforms_fwd)
         # transforms_bwd = FastDiff4x4MinvFunction.apply(transforms_fwd.reshape(-1, 4, 4))[0].reshape_as(transforms_fwd)
@@ -560,7 +561,7 @@ class IDHRenderer:
             x_h = torch.einsum("bpij,bpj->bpi", w_tf, x_h)
 
         return x_h[:, :, :3], w_tf, w_tf_inv
-        
+    
     def backward_lbs_knn(self, points, dst_gtfms, dst_vertices, skinning_weights, **kwargs):
         """Backward skinning based on nearest neighbor SMPL skinning weights
 

@@ -16,7 +16,7 @@ class Embedder:
         if self.kwargs['include_input']:
             embed_fns.append(lambda x : x)
             out_dim += d
-            
+        
         max_freq = self.kwargs['max_freq_log2']
         N_freqs = self.kwargs['num_freqs']
         
