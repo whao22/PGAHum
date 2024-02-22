@@ -36,7 +36,7 @@ def setup_seed(seed):
 
 
 if __name__ == '__main__':
-    setup_seed(42)
+    setup_seed(3407)
     # Args and Conf
     args = parse_arguments()
     conf = ConfigFactory.parse_file(args.conf)

@@ -1,6 +1,6 @@
 # import libs.datasets as data
-from libs.datasets.zjumocap import ZJUMoCapDataset
-from libs.datasets.zjumocap_init import ZJUMoCapDatasetInit
+from libs.datasets.zjumocap_v1 import ZJUMoCapDataset
+from libs.datasets.zjumocap_v2 import ZJUMoCapDataset
 from libs.datasets.zjumocap_odp import ZJUMoCapDataset_ODP
 from libs.datasets.zjumocap_mvs import ZJUMoCapDataset_MVS
 from libs.hfavatar import HFAvatar

@@ -1,3 +1,4 @@
+""" Discarded old version code. """
 import os
 import pickle
 import numpy as np
@@ -20,7 +21,7 @@ from libs.utils.camera_utils import \
     rays_intersect_3d_bbox
 
 
-class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
+class ZJUMoCapDataset(torch.utils.data.Dataset):
     def __init__(self, 
                  dataset_folder='data/data_prepared',
                  subjects=['CoreView_313'],
@@ -38,11 +39,13 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
                  sample_subject_ratio=0.8,
                  N_samples=64,
                  inner_sampling=False,
-                 res_level=4):
+                 res_level=4,
+                 use_dilated=False):
         assert len(subjects) == 1, 'SINGLE PERSON! Please make sure the length of subjects list is one.'
         assert len(views) == 1, 'MONOCULAR! Please make sure the length of views list is one.'
         
         # meta data
+        self.use_dilated = use_dilated
         self.mode = mode
         self.patch_size = patch_size
         self.N_patches = N_patches
@@ -84,15 +87,7 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
             masks.append(mask)
         self.images_np = np.stack(images).astype(np.float32) # (n_images, H, W, 3)
         self.masks_np = np.stack(masks).astype(np.float32) # (n_images, H, W, 1)
-        self.H, self.W = self.images_np.shape[1:3]
         
-        # init ray info of ray surface intersection
-        self.rays_info_all={}
-        for idx, fname in enumerate(self.framelist):
-            rays_info, rays_mask = self.get_rays_info(fname)
-            self.rays_info_all[f'{fname}_rays_info'] = rays_info
-            self.rays_info_all[f'{fname}_rays_mask'] = rays_mask
-            
         print(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
 
     def load_canonical_joints(self):
@@ -156,7 +151,9 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
             'bbox': self.mesh_infos[frame_name]['bbox'].copy(),
             'Rh': self.mesh_infos[frame_name]['Rh'].astype('float32'),
             'Th': self.mesh_infos[frame_name]['Th'].astype('float32'),
-            'posed_vertices': self.mesh_infos[frame_name]['posed_vertices'].astype('float32')
+            'posed_vertices': self.mesh_infos[frame_name]['posed_vertices'].astype('float32'),
+            'dilated_vertices': self.mesh_infos[frame_name]['dilated_vertices'].astype('float32'),
+            'dilated_triangles': self.mesh_infos[frame_name]['dilated_triangles'].copy(),
         }
     
     def load_image_mask(self, frame_name, bg_color):
@@ -187,52 +184,7 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
                                     interpolation=cv2.INTER_LINEAR)[..., None]
         
         return img, alpha_mask
-    
-    def get_rays_info(self, frame_name):
-        """get all rays for one frame in initial time, and calculate the ray mask for speed up 
 
-        Args:
-            idx (_type_): _description_
-        """        
-        # dst skeleton info
-        dst_skel_info = self.query_dst_skeleton(frame_name)
-        dst_bbox = dst_skel_info['bbox']
-        dst_vertices = dst_skel_info['posed_vertices']
-
-        # calculate K, E, T
-        assert frame_name in self.cameras
-        K = self.cameras[frame_name]['intrinsics'][:3, :3].copy()
-        K[:2] *= self.resize_img_scale
-
-        E = self.cameras[frame_name]['extrinsics'].copy()
-        E = apply_global_tfm_to_camera(
-                E=E, 
-                Rh=dst_skel_info['Rh'],
-                Th=dst_skel_info['Th'])
-        R = E[:3, :3]
-        T = E[:3, 3]
-
-        # calculateinfo rays in world coordinate from pixel/image coordinate
-        rays_o, rays_d = get_rays_from_KRT(self.H, self.W, K, R, T)
-        rays_o = rays_o.reshape(-1, 3) # (H, W, 3) --> (HxW, 3)
-        rays_d = rays_d.reshape(-1, 3) # (H, W, 3) --> (HxW, 3)
-
-        # calculate rays and near & far which intersect with cononical space bbox
-        near, far, ray_mask = rays_intersect_3d_bbox(dst_bbox, rays_o, rays_d)
-        rays_o = rays_o[ray_mask] # (N_rays, 3)
-        rays_d = rays_d[ray_mask] # (N_rays, 3)
-        near = near[:, None].astype('float32') # (N_rays, 1)
-        far = far[:, None].astype('float32') # (N_rays, 1)
-        
-        if self.inner_sampling:
-            # hit_masks: (N_rays, N_intervals)
-            # hit_dists: (N_rays, 2*N_intervals)
-            hit_masks, hit_dists = self.get_ray_surface_inters(near, far, rays_o, rays_d, dst_vertices, self.faces)
-            rays_info = np.concatenate([near, far, rays_o, rays_d, hit_masks, hit_dists], axis=-1)
-        else:
-            rays_info = np.concatenate([near, far, rays_o, rays_d], axis=-1)
-        return rays_info, ray_mask
-    
     def sample_batch_rays(self, N_rays, rays_o, rays_d, rays_img, rays_alpha, near, far):
         sample_idxs=np.random.randint(0, rays_o.shape[0], N_rays)
         rays_o = rays_o[sample_idxs].astype(np.float32) # (N_rays, 3)
@@ -307,6 +259,7 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
         max_xyz = self.canonical_bbox['max_xyz'].astype('float32')
         results={
             'batch_rays': batch_rays.astype(np.float32), # ndarray (N_rays, 12)
+            'bbox_mask': rays_mask.reshape(H, W), # ndarray (H, W, 1)
             
             'frame_name': frame_name, # str
             'extrinsic': E.astype(np.float32), # ndarray (4, 4)
@@ -334,7 +287,12 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
             # 'Jtrs': Jtr_norm.astype(np.float32), # (24 3), T-pose joint points
         }
         if self.inner_sampling:
-            z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
+            if self.use_dilated:
+                dilated_vertices = dst_skel_info['dilated_vertices']
+                dilated_triangles = dst_skel_info['dilated_triangles']
+                z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dilated_vertices, dilated_triangles)
+            else:
+                z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
             results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = inter_mask
         return results
@@ -348,22 +306,42 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
 
         # dst skeleton info
         dst_skel_info = self.query_dst_skeleton(frame_name)
+        dst_bbox = dst_skel_info['bbox']
         dst_poses = dst_skel_info['poses'] # (24 x 3,)
         dst_tpose_joints = dst_skel_info['dst_tpose_joints'] # (24, 3)
+        dst_vertices = dst_skel_info['posed_vertices']
+        
         dst_Rs, dst_Ts = body_pose_to_body_RTs(dst_poses, dst_tpose_joints) # (24, 3, 3) (24, 3)
         
         # calculate K, E, T
         assert frame_name in self.cameras
+        K = self.cameras[frame_name]['intrinsics'][:3, :3].copy()
+        K[:2] *= self.resize_img_scale
+
+        E = self.cameras[frame_name]['extrinsics'].copy()
+        E = apply_global_tfm_to_camera(
+                E=E, 
+                Rh=dst_skel_info['Rh'],
+                Th=dst_skel_info['Th'])
+        R = E[:3, :3]
+        T = E[:3, 3]
+
+        # calculateinfo rays in world coordinate from pixel/image coordinate
+        rays_o, rays_d = get_rays_from_KRT(H, W, K, R, T)
         rays_img = image.reshape(-1, 3) # (H, W, 3) --> (HxW, 3)
         rays_alpha = alpha.reshape(-1, 1) # (H, W, 1) --> (HxW, 1)
+        rays_o = rays_o.reshape(-1, 3) # (H, W, 3) --> (HxW, 3)
+        rays_d = rays_d.reshape(-1, 3) # (H, W, 3) --> (HxW, 3)
 
         # calculate rays and near & far which intersect with cononical space bbox
-        rays_info = self.rays_info_all[f'{frame_name}_rays_info']
-        # near, far, rays_o, rays_d = rays_info[]
-        ray_mask = self.rays_info_all[f'{frame_name}_rays_mask']
+        near, far, ray_mask = rays_intersect_3d_bbox(dst_bbox, rays_o, rays_d)
+        rays_o = rays_o[ray_mask] # (len(ray_mask), 3)
+        rays_d = rays_d[ray_mask] # (len(ray_mask), 3)
         rays_img = rays_img[ray_mask] # (len(ray_mask), 3)
         rays_alpha = rays_alpha[ray_mask] # (len(ray_mask), 1)
-        
+        near = near[:, None].astype('float32') # (len(ray_mask), 1)
+        far = far[:, None].astype('float32') # (len(ray_mask), 1)
+
         if self.ray_shoot_mode == 'default':
             # calculate batch or patch rays
             rays_o, rays_d, rays_img, rays_alpha, near, far = \
@@ -431,7 +409,12 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
                 'patch_div_indices': patch_div_indices,
                 })
         if self.inner_sampling:
-            z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
+            if self.use_dilated:
+                dilated_vertices = dst_skel_info['dilated_vertices']
+                dilated_triangles = dst_skel_info['dilated_triangles']
+                z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dilated_vertices, dilated_triangles)
+            else:
+                z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
             results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = inter_mask
             
@@ -462,8 +445,8 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
         
         return sampled_near, sampled_far, hit_mask
     
-    def get_ray_surface_inters(self, near, far, rays_o, rays_d, vertices, faces):
-        """Get all intersections of ray and surface, return hit masks and hit distances. 
+    def get_z_vals(self, near, far, rays_o, rays_d, vertices, faces):
+        """Get z-depth w.r.t. z_vals for sampling points.
 
         Args:
             near (ndarray): (N_rays, 1)
@@ -474,8 +457,8 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
             faces (ndarray): (N_faces, 3)
 
         Returns:
-            hit_masks (ndarray): (N_rays, N_interval)
-            hit_dists (ndarray): (N_rays, 2*N_interval)
+            z_vals (ndarray): (N_rays, N_samples), z_vals for depth of sampling points in rays
+            inter_mask (ndarray): (N_rays,), mask with any intersection, 
         """
         ALPHA = 0.008 * 0.5 # 0.008 is determined by calculating the mean length of all edge
         rays_o = rays_o + rays_d * near
@@ -521,7 +504,8 @@ class ZJUMoCapDatasetInit(torch.utils.data.Dataset):
             hit_dists = np.cumsum(hit_dists, axis=-1)
             hit_dists = hit_dists + dists[:, :1]                                # (N_rays, N_interval * 2)
         
-        return hit_masks[:, ::2], hit_dists
+        z_vals, inter_mask = self.calculate_inner_smpl_depth(near, far, hit_masks, hit_dists)
+        return z_vals, inter_mask
     
     def calculate_inner_smpl_depth(self, near, far, hit_masks, hit_dists):
         """Calculate sampling depth in rays given the hit masks and hit distances.

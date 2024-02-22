@@ -101,7 +101,7 @@ class IDHRenderer:
 
         # Section midpoints
         pts_obs = rays_o[:, None, :] + rays_d[:, None, :] * mid_z_vals[..., :, None]  # (N_rays, N_samples, 3)
-        pts_cnl, _, _, _, _ = self.deform_points(pts_obs, **deform_kwargs) # (N_rays, N_samples, 3)
+        pts_cnl, _, _ = self.deform_points(pts_obs, **deform_kwargs) # (N_rays, N_samples, 3)
         # pts_cnl, pts_mask = self.deform_points2(pts_obs, **deform_kwargs)
         dirs = self.dirs_from_pts(pts_cnl) # (N_rays, N_samples, 3)
         dirs = dirs.reshape(-1, 3) # (N_rays x N_samples, 3)
@@ -162,8 +162,7 @@ class IDHRenderer:
         
         # section midpoints
         points_obs = rays_o[..., None, :] + rays_d[..., None, :] * mid_z_vals[..., None]  # (N_rays, N_samples, 3)
-        points_cnl, pts_W_pred, pts_W_sampled, _, _ = self.deform_points(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
-        # pts_cnl, pts_mask = self.deform_points2(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
+        points_cnl, pts_W_pred, pts_W_sampled = self.deform_points(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
         
         dirs = self.dirs_from_pts(points_cnl) # (N_rays, N_samples, 3)
         # dirs = self.deform_dirs(rays_d, points_cnl, transforms_bwd) # (N_rays, N_samples, 3)
@@ -459,11 +458,11 @@ class IDHRenderer:
         pose_refine_error = torch.nn.functional.l1_loss(refined_Rs, torch.eye(3,3).expand_as(refined_Rs).to(refined_Rs))
         return dst_Rs, dst_Ts, pose_refine_error
     
-    def deform_points(self, points, dst_posevec=None, iter_step=1, non_rigid_kick_in_iter=1000, dst_gtfms=None, non_rigid_pos_embed_fn=None, **deform_kwargs):
+    def deform_points(self, points_obs, dst_posevec=None, iter_step=1, dst_gtfms=None, non_rigid_kick_in_iter=1000, non_rigid_pos_embed_fn=None, **deform_kwargs):
         """deform the points in observation space into cononical space via Itertative Backward Deformation.
 
         Args:
-            points (tensor): (N, 3)
+            points_obs (tensor): (N, 3)
             dst_posevec (tensor, optional): pose vector. Defaults to None.
             iter_step (int, optional): _description_. Defaults to 1.
             non_rigid_kick_in_iter (int, optional): _description_. Defaults to 1000.
@@ -471,15 +470,16 @@ class IDHRenderer:
         Returns:
             _type_: _description_
         """
-        N_rays, N_samples, _ = points.shape
-        points = points.reshape(1, -1, 3) # # (1, N_points, 3)
-        points_skl, transforms_fwd, transforms_bwd, pts_W_sampled = self.backward_lbs_knn(points.clone(), dst_gtfms.clone(), **deform_kwargs) # (1, N_points, 3)
+        N_rays, N_samples, _ = points_obs.shape
+        points_obs = points_obs.reshape(1, -1, 3) # # (1, N_points, 3)
+        with torch.no_grad():
+            points_skl, pts_W_sampled = self.backward_lbs_knn(points_obs, dst_gtfms, **deform_kwargs) # (1, N_points, 3)
         
         pts_W_pred = None
         # if N_iter_backward >= 1, use iterative backward deformation, cnl = points_obs * weights
         if self.N_iter_backward > 0 and iter_step >= non_rigid_kick_in_iter:
             for i in range(self.N_iter_backward):
-                points_skl, transforms_fwd, transforms_bwd, pts_W_pred = self.backward_lbs_nn(points_skl.clone(), points.clone(), dst_gtfms.clone()) # (1, N_points, 3)
+                points_skl, pts_W_pred = self.backward_lbs_nn(points_obs, dst_gtfms, points_skl) # (1, N_points, 3)
             points_cnl = points_skl
         
         # if N_iter_backward <= 0, not use iterative backward deformation, cnl = points_skl + points_offset
@@ -489,7 +489,7 @@ class IDHRenderer:
             non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < non_rigid_kick_in_iter else dst_posevec # (1, 69)
             points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=points_skl, condition_code=non_rigid_mlp_input)['xyz']
         
-        return points_cnl.reshape(N_rays, N_samples, 3), pts_W_pred, pts_W_sampled, transforms_fwd, transforms_bwd,
+        return points_cnl.reshape(N_rays, N_samples, 3), pts_W_pred, pts_W_sampled
 
     def query_weights(self, points):
         """Canonical point -> deformed point
@@ -515,27 +515,28 @@ class IDHRenderer:
 
         return w_ret
 
-    def backward_lbs_nn(self, points_cnl, points, dst_gtfms, inverse=False):
+    def backward_lbs_nn(self, points_obs, dst_gtfms, points_skl, inverse=False):
         ''' Backward skinning based on neural network predicted skinning weights 
         Args:
-            points (tensor): canonical points. shape: [B, N, D]
+            points_obs (tensor): canonical points. shape: [B, N, D]
             pts_weights (tensor): conditional input. [B, N, J]
             dst_gtfms (tensor): bone transformation matrices. shape: [B, J, D+1, D+1]
         Returns:
             x (tensor): skinned points. shape: [B, N, D]
         '''
-        batch_size, N_points, _ = points.shape
-        device = points.device
+        batch_size, N_points, _ = points_obs.shape
+        device = points_obs.device
         
-        pts_weights = self.query_weights(points_cnl) # (1, N_points, 24)
-        transforms_fwd = torch.matmul(pts_weights, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
+        pts_W_pred = self.query_weights(points_skl) # (1, N_points, 24)
+        
+        transforms_fwd = torch.matmul(pts_W_pred, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
         transforms_bwd = torch.inverse(transforms_fwd)
         # transforms_bwd = FastDiff4x4MinvFunction.apply(transforms_fwd.reshape(-1, 4, 4))[0].reshape_as(transforms_fwd)
         homogen_coord = torch.ones(batch_size, N_points, 1, dtype=torch.float32, device=device)
-        points_homo = torch.cat([points, homogen_coord], dim=-1).view(batch_size, N_points, 4, 1)
-        points_new = torch.matmul(transforms_bwd, points_homo)[..., :3, 0]
+        points_homo = torch.cat([points_obs, homogen_coord], dim=-1).view(batch_size, N_points, 4, 1)
+        points_cnl = torch.matmul(transforms_bwd, points_homo)[..., :3, 0]
         
-        return points_new, transforms_fwd, transforms_bwd, pts_weights
+        return points_cnl, pts_W_pred
     
     def backward_lbs_nn_einsum(self, x, w, tfs, inverse=False):
         ''' Backward skinning based on neural network predicted skinning weights 
@@ -562,11 +563,11 @@ class IDHRenderer:
 
         return x_h[:, :, :3], w_tf, w_tf_inv
     
-    def backward_lbs_knn(self, points, dst_gtfms, dst_vertices, skinning_weights, **kwargs):
+    def backward_lbs_knn(self, points_obs, dst_gtfms, dst_vertices, skinning_weights, **kwargs):
         """Backward skinning based on nearest neighbor SMPL skinning weights
 
         Args:
-            points (tensor): (B, N, 3)
+            points_obs (tensor): (B, N, 3)
             dst_vertices (tensor, optional): SMPL mesh vertices (6890, 3). Defaults to None.
             skinning_weights (tensor, optional): SMPL prior skinning weights. Defaults to None.
             dst_gtfms (Tensor, optional): _description_. Defaults to None.
@@ -576,28 +577,28 @@ class IDHRenderer:
         Returns:
             _type_: _description_
         """
-        batch_size, N_points, _ = points.shape
-        device = points.device
+        batch_size, N_points, _ = points_obs.shape
+        device = points_obs.device
         N_knn = 3
         
         # sample skinning weights from SMPL prior weights
-        knn_ret = ops.knn_points(points, dst_vertices, K=N_knn)
+        knn_ret = ops.knn_points(points_obs, dst_vertices, K=N_knn)
         p_idx, p_dists = knn_ret.idx, knn_ret.dists
         
-        w = p_dists.sum(-1, True) / p_dists
-        w = w / w.sum(-1, True)
+        w = p_dists.sum(-1, True) / (p_dists + 1e-8)
+        w = w / (w.sum(-1, True) + 1e-8)
         bv, _ = torch.meshgrid([torch.arange(batch_size).to(device), torch.arange(N_points).to(device)], indexing='ij')
-        pts_W = 0.
+        pts_W_sampled = 0.
         for i in range(N_knn):
-            pts_W += skinning_weights[bv, p_idx[..., i], :] * w[..., i:i+1]
+            pts_W_sampled += skinning_weights[bv, p_idx[..., i], :] * w[..., i:i+1]
 
-        transforms_fwd = torch.matmul(pts_W, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
+        transforms_fwd = torch.matmul(pts_W_sampled, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
         transforms_bwd = torch.inverse(transforms_fwd)
         # transforms_bwd = FastDiff4x4MinvFunction.apply(transforms_fwd.reshape(-1, 4, 4))[0].reshape_as(transforms_fwd)
 
         homogen_coord = torch.ones(batch_size, N_points, 1, dtype=torch.float32, device=device)
-        points_homo = torch.cat([points, homogen_coord], dim=-1).view(batch_size, N_points, 4, 1)
-        points_new = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0] # (1， N_points, 3)
+        points_homo = torch.cat([points_obs, homogen_coord], dim=-1).view(batch_size, N_points, 4, 1)
+        points_cnl = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0] # (1， N_points, 3)
         
         if False:
             import trimesh
@@ -610,5 +611,5 @@ class IDHRenderer:
             points_newa = torch.matmul(transforms_bwda, points_homo)[:, :, :3, 0]
             trimesh.Trimesh(points_newa[0].detach().cpu().numpy()).export("tvpose_vertices_from_posed.obj")
             
-        return points_new, transforms_fwd, transforms_bwd, pts_W
+        return points_cnl, pts_W_sampled
         

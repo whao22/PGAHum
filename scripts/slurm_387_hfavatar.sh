@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=hf
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=256G
+#SBATCH --cpus-per-task=72
+#SBATCH --mem=400G
 #SBATCH --partition=gpujl
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 
 # show currrent status
 echo Start time is `date`
@@ -16,11 +16,11 @@ gpustat
 ################################################################
 ##################### CUSTOM SCRIPTS START #####################
 
-user_comment='mvs_w/_inner-w/_init_sdf_w/o_inner'
+user_comment='mvs_w/_inner-w/_init_sdf-w/_patch-rgb50-lpip5-eik0.1'
 exp_comment=`date +%s`
-run_name="CoreView_377_${exp_comment}_slurm_${user_comment}"
+run_name="CoreView_387_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
-conf="confs/hfavatar-zju/ZJUMOCAP-377-mono-4gpus.conf"
+conf="confs/hfavatar-zju/ZJUMOCAP-387-4gpus.conf"
 echo The base experiment directory is ${base_exp_dir}.
 
 python train.py \

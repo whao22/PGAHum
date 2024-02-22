@@ -3,7 +3,6 @@ __pycache__
 
 data
 exp
-test
 out
 output
 build
@@ -18,3 +17,4 @@ slurm_logs
 *obj
 *zip
 *ply
+*pyc
