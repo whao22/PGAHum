@@ -483,6 +483,7 @@ class IDHRenderer:
             points_cnl = points_skl
         
         # if N_iter_backward <= 0, not use iterative backward deformation, cnl = points_skl + points_offset
+        # for free-viewpoint rendering instead of general pose
         elif self.N_iter_backward <= 0:
             points_skl = points_skl.reshape(-1, 3) # (N_points, 3)
             non_rigid_embed_xyz = non_rigid_pos_embed_fn(points_skl)
@@ -591,6 +592,7 @@ class IDHRenderer:
         pts_W_sampled = 0.
         for i in range(N_knn):
             pts_W_sampled += skinning_weights[bv, p_idx[..., i], :] * w[..., i:i+1]
+            # pts_W_sampled += skinning_weights[bv, p_idx[..., i], :]
 
         transforms_fwd = torch.matmul(pts_W_sampled, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
         transforms_bwd = torch.inverse(transforms_fwd)

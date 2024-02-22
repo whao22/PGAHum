@@ -3,7 +3,7 @@ exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_run_${user_comment}"
 base_exp_dir="exp/${run_name}"
 log_name="CoreView_377_${exp_comment}_run.log"
-conf="confs/hfavatar-zju/ZJUMOCAP-377-4gpus.conf"
+conf="confs/hfavatar-zju/ZJUMOCAP-377-mono-4gpus.conf"
 echo The base experiment directory is ${base_exp_dir}.
 
 python train.py \

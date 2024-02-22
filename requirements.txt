@@ -1,8 +1,9 @@
-trimesh
 numpy==1.21.2
+pytorch-lightning==1.5.10
+trimesh
 pyhocon
 icecream
-opencv_python==4.5.5.62
+opencv_python
 tqdm
 scipy
 PyMCubes
@@ -10,7 +11,6 @@ lpips
 matplotlib
 termcolor
 tensorboard
-pytorch-lightning==1.5.10
 pyrender
 libigl
 mesh2sdf
