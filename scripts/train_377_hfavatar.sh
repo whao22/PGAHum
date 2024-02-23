@@ -1,9 +1,9 @@
-user_comment='w/_inner-w/_init_sdf-w/_tri'
+user_comment='mono_winner_wdeltasdf'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_run_${user_comment}"
 base_exp_dir="exp/${run_name}"
-log_name="CoreView_377_${exp_comment}_run.log"
 conf="confs/hfavatar-zju/ZJUMOCAP-377-mono-4gpus.conf"
+log_name="CoreView_377_${exp_comment}_run.log"
 echo The base experiment directory is ${base_exp_dir}.
 
 python train.py \

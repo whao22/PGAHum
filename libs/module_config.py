@@ -67,10 +67,10 @@ def get_model(conf, base_exp_dir, init_weight=False):
     total_bones = conf['general.total_bones']
     N_frames = conf['dataset.N_frames']
     
-    skinning_model = get_skinning_model(conf, init_weight=True)
-    sdf_decoder = get_sdf_decoder(conf, init_weights=init_weight)
     pose_decoder = BodyPoseRefiner(total_bones=total_bones, **conf['model.pose_refiner'])
     motion_basis_computer = MotionBasisComputer(total_bones)
+    
+    skinning_model = get_skinning_model(conf, init_weight=False)
     offset_net = Offset(**conf['model.offset_net'])
     _, non_rigid_pos_embed_size = get_embedder(multires=conf.model.non_rigid.multires, 
                                                iter_val=conf.model.non_rigid.i_embed,
@@ -80,6 +80,7 @@ def get_model(conf, base_exp_dir, init_weight=False):
     nerf_outside = NeRF(**conf['model.nerf'])
     deviation_network = SingleVarianceNetwork(**conf['model.variance_network'])
     color_network = RenderingNetwork(**conf['model.rendering_network'])
+    sdf_decoder = get_sdf_decoder(conf, init_weights=init_weight)
     if conf.train.sdf_mode == 'mlp':
         sdf_network = SDFNetwork(**conf['model.sdf_network'])
     elif conf.train.sdf_mode == 'tri':

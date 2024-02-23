@@ -16,9 +16,7 @@ gpustat
 ################################################################
 ##################### CUSTOM SCRIPTS START #####################
 
-# user_comment=''
-# user_comment='w/_inner-w/_init_sdf-rgb50-lpip5-eik0.1'
-user_comment='w/_inner-w/_init_sdf-w/_tri'
+user_comment='mvs_winner_wdeltasdf'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"

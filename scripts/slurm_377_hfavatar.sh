@@ -1,10 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=hf
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=72
+#SBATCH --cpus-per-task=70
 #SBATCH --mem=256G
 #SBATCH --partition=gpujl
 #SBATCH --gres=gpu:4
+#SBATCH --nodelist=node26
 
 # show currrent status
 echo Start time is `date`
@@ -16,7 +17,7 @@ gpustat
 ################################################################
 ##################### CUSTOM SCRIPTS START #####################
 
-user_comment='mvs_w/_inner-w/_init_sdf_w/_inner'
+user_comment='mvs_winner_wdeltasdf'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"

@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import numpy as np
 
-from libs.embeders.embedder_high import get_embedder
+from libs.embeders.embedder_nerf import get_embedder
 from libs.utils.network_utils import MotionBasisComputer
 from libs.models.deconv_vol_decoder import MotionWeightVolumeDecoder
 from libs.models.nonrigid import NonRigidMotionMLP

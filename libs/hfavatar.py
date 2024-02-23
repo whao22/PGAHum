@@ -171,15 +171,15 @@ class HFAvatar(pl.LightningModule):
         loss_results = self.criteria(render_out, batch, sdf_params)
         
         # loss
-        self.log('loss_color', loss_results['loss_color'], on_step=True, prog_bar=True, logger=True, batch_size=self.batch_size)
-        self.log('loss_mask', loss_results['loss_mask'], on_step=True, logger=True, batch_size=self.batch_size)
-        self.log('loss_eikonal', loss_results['loss_eikonal'], on_step=True, logger=True, batch_size=self.batch_size)
-        self.log('loss_pips', loss_results['loss_pips'], on_step=True, logger=True, batch_size=self.batch_size)
-        self.log('loss_skinning_weights', loss_results['loss_skinning_weights'], on_step=True, logger=True, batch_size=self.batch_size)
-        self.log('loss_params', loss_results['loss_params'], on_step=True, logger=True, batch_size=self.batch_size)
-        self.log('loss_pose_refine', loss_results['loss_pose_refine'], on_step=True, logger=True, batch_size=self.batch_size)
+        self.log('loss_color', loss_results['loss_color'])
+        self.log('loss_mask', loss_results['loss_mask'])
+        self.log('loss_eikonal', loss_results['loss_eikonal'])
+        self.log('loss_pips', loss_results['loss_pips'])
+        self.log('loss_skinning_weights', loss_results['loss_skinning_weights'])
+        self.log('loss_params', loss_results['loss_params'])
+        self.log('loss_pose_refine', loss_results['loss_pose_refine'])
         
-        self.log('loss', loss_results['loss'], on_step=True, logger=True, batch_size=self.batch_size)
+        self.log('loss', loss_results['loss'])
         
         return loss_results['loss']
         
@@ -353,9 +353,9 @@ class HFAvatar(pl.LightningModule):
             ssim = np.array(ssim).mean()
             lpips = np.array(lpips).mean()
             
-            self.log('PSNR', psnr, logger=True, batch_size=self.batch_size)
-            self.log('SSIM', ssim, logger=True, batch_size=self.batch_size)
-            self.log('LPIPS', lpips, logger=True, batch_size=self.batch_size)
+            self.log('PSNR', psnr)
+            self.log('SSIM', ssim)
+            self.log('LPIPS', lpips)
         
     def update_learning_rate(self, optimizer):
         decay_rate = 0.1
@@ -369,7 +369,7 @@ class HFAvatar(pl.LightningModule):
             else:
                 new_lr = self.lr * learning_factor
             param_group['lr'] = new_lr
-        self.log('lr', new_lr, on_step=True, logger=True, batch_size=self.batch_size)
+        self.log('lr', new_lr)
         
     def configure_optimizers(self):
         # get optimizer

@@ -2,7 +2,7 @@ from torch import nn
 import torch
 import numpy as np
 import torch.nn.functional as F
-from libs.embeders.embedder_high import get_embedder
+from libs.embeders.embedder_nerf import get_embedder
 
 class Offset(nn.Module):
     def __init__(self,

@@ -480,7 +480,7 @@ class IDHRenderer:
         if self.N_iter_backward > 0 and iter_step >= non_rigid_kick_in_iter:
             for i in range(self.N_iter_backward):
                 points_skl, pts_W_pred = self.backward_lbs_nn(points_obs, dst_gtfms, points_skl) # (1, N_points, 3)
-            points_cnl = points_skl
+            points_cnl = points_skl.clone()
         
         # if N_iter_backward <= 0, not use iterative backward deformation, cnl = points_skl + points_offset
         # for free-viewpoint rendering instead of general pose

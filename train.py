@@ -6,13 +6,13 @@ import logging
 import os
 import numpy as np
 import random
+import pytorch_lightning as pl
+
 from pyhocon import ConfigFactory
 from torch.utils.data import DataLoader
-import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from libs import module_config
-# os.environ['CUDA_LAUNCH_BLOCKING']='1'
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
