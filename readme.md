@@ -20,7 +20,7 @@ Please run the following scripts for create python virtual environment and insta
 
 ```
 conda env create -f environment.yml
-
+conda activate hf-avatar
 bash scripts/install.sh
 ```
 
