@@ -52,7 +52,17 @@ The extracted SMPL parameters will be saved into `./body_models/misc/`.
 
 You can get the raw data from their respective sources and use our preprocessing script to generate data that is suitable for our training/validation scripts. Please follow the steps in [DATASET.md](https://github.com/taconite/arah-release/blob/main/DATASET.md). Train/val splits on cameras/poses follow [NeuralBody&#39;s split](https://github.com/zju3dv/neuralbody/blob/master/supplementary_material.md#training-and-test-data). Pseudo ground truths for geometry reconstruction on the ZJU-MoCap dataset are stored in [this folder](https://drive.google.com/drive/folders/1-OE3h7nxg7ixL3yh0Y7bGYKVsNWS-Zm4?usp=share_link). For evaluation script and data split of geometry reconstruction please refer to [this comment](https://github.com/taconite/arah-release/issues/9#issuecomment-1359209138).
 
+For example, to preprocess the ZJU-MoCap dataset, run the following script:
+
+```
+python tools/prepare_zju_mocap/prepare_dataset.py --conf tools/prepare_zju_mocap/confs_preprocess/***.yaml
+```
+
+The preprocessed data will be saved into `[data/data_prepared/CoreView_***]`.
+
 ### Training
+
+Please run the following script to train the model.
 
 ```
 bash scripts/train_377_hfavatar.sh
@@ -93,4 +103,4 @@ Distributed under the GPL License. See `LICENSE` for more information.
 
 ## Acknowledgements
 
-This project is built on [ARAH](https://github.com/taconite/arah-release), thank them for their contributions.
+This project is built on [ARAH](https://github.com/taconite/arah-release) and [HumanNeRF](https://github.com/chungyiweng/humannerf), thank them for their contributions.
