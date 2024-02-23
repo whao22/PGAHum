@@ -2,9 +2,13 @@
 
 ## Description
 
-<center class="half">
-  <img src="assets/odp_01_rgb.png" width="20%"/> <img src="assets/odp_01_nrl.png" width="20%"/> <img src="assets/odp_02_rgb.png" width="20%"/> <img src="assets/odp_02_nrl.png" width="20%"/>
-</center>
+
+<div align="center">
+  <img src="assets/odp_01_rgb.png" width="18%"/> 
+  <img src="assets/odp_01_nrl.png" width="18%"/> 
+  <img src="assets/odp_02_rgb.png" width="18%"/> 
+  <img src="assets/odp_02_nrl.png" width="18%"/>
+</div>
 
 Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.
 
