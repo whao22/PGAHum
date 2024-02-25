@@ -3,6 +3,7 @@ import os
 import pickle
 import numpy as np
 import cv2
+import logging
 from tqdm import tqdm
 import torch
 import torch.utils.data
@@ -94,7 +95,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
             self.rays_info_all[f'{fname}_rays_info'] = rays_info
             self.rays_info_all[f'{fname}_rays_mask'] = rays_mask
             
-        print(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
+        logging.info(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
 
     def load_canonical_joints(self):
         cl_joint_path = os.path.join(self.dataset_path, 'canonical_joints.pkl')

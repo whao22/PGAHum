@@ -2,6 +2,7 @@ import os
 import pickle
 import numpy as np
 import cv2
+import logging
 from tqdm import tqdm
 import torch
 import torch.utils.data
@@ -43,9 +44,9 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
         assert len(subjects) == 1, 'SINGLE PERSON! Please make sure the length of subjects list is one.'
         
         # meta data
-        self.use_dilated = use_dilated
         self.mode = mode
         self.views = views
+        self.use_dilated = use_dilated
         self.patch_size = patch_size
         self.N_patches = N_patches
         self.sample_subject_ratio = sample_subject_ratio
@@ -86,7 +87,7 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
         self.images_np_dict = images
         self.masks_np_dict = masks
         
-        print(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
+        logging.info(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
         
     def load_smpl_sdf(self):
         return np.load(os.path.join(self.dataset_path, 'smpl_sdf.npy'), allow_pickle=True).item()

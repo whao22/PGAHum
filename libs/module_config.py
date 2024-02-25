@@ -5,7 +5,7 @@ from libs.datasets.zjumocap_odp import ZJUMoCapDataset_ODP
 from libs.datasets.zjumocap_mvs import ZJUMoCapDataset_MVS
 from libs.hfavatar import HFAvatar
 from libs.models.siren_modules import HyperBVPNet
-from libs.models.deform import Deformer
+from libs.models.deformer import Deformer
 import torch
 from collections import OrderedDict
 
@@ -63,70 +63,91 @@ def get_skinning_model(conf, init_weight=True):
         skinning_model.load_state_dict(skinning_decoder_fwd_state_dict, strict=False)
     return skinning_model
 
-def get_model(conf, base_exp_dir, init_weight=False):
+def load_init_weight(net_path, pose_decoder: torch.nn.Module, non_rigid_mlp: torch.nn.Module):
+    ckpt = torch.load(net_path, map_location='cpu')
+    
+    # pose_decoder
+    pose_decoder_fwd_state_dict = OrderedDict()
+    for k, v in ckpt['network'].items():
+        if k.startswith('module'):
+            k = k[7:]
+
+        if k.startswith('pose_decoder'):
+            pose_decoder_fwd_state_dict[k[13:]] = v
+    pose_decoder.load_state_dict(pose_decoder_fwd_state_dict, strict=False)
+    
+    # non_rigid_mlp
+    non_rigid_mlp_fwd_state_dict = OrderedDict()
+    for k, v in ckpt['network'].items():
+        if k.startswith('module'):
+            k = k[7:]
+
+        if k.startswith('non_rigid_mlp'):
+            non_rigid_mlp_fwd_state_dict[k[14:]] = v
+    non_rigid_mlp.load_state_dict(non_rigid_mlp_fwd_state_dict, strict=False)
+    
+    return pose_decoder, non_rigid_mlp
+    
+def get_model(conf):
+    init_weight = conf['model.init_weight']
     total_bones = conf['general.total_bones']
-    N_frames = conf['dataset.N_frames']
+    deform_mode = conf['model.deform_mode']
+    sdf_mode = conf['model.sdf_mode']
+    net_path = conf['model.nets_path']
+    n_outside = conf['model.neus_renderer.n_outside']
     
-    pose_decoder = BodyPoseRefiner(total_bones=total_bones, **conf['model.pose_refiner'])
-    motion_basis_computer = MotionBasisComputer(total_bones)
-    
-    skinning_model = get_skinning_model(conf, init_weight=False)
-    offset_net = Offset(**conf['model.offset_net'])
-    _, non_rigid_pos_embed_size = get_embedder(multires=conf.model.non_rigid.multires, 
+    models = {}
+    # Deformer
+    if deform_mode == 0:
+        offset_net = Offset(**conf['model.offset_net'])
+        _, non_rigid_pos_embed_size = get_embedder(multires=conf.model.non_rigid.multires, 
                                                iter_val=conf.model.non_rigid.i_embed,
                                                kick_in_iter=conf.model.non_rigid.kick_in_iter,
                                                full_band_iter=conf.model.non_rigid.full_band_iter)
-    non_rigid_mlp = NonRigidMotionMLP(**conf['model.non_rigid'], pos_embed_size=non_rigid_pos_embed_size)
-    nerf_outside = NeRF(**conf['model.nerf'])
-    deviation_network = SingleVarianceNetwork(**conf['model.variance_network'])
-    color_network = RenderingNetwork(**conf['model.rendering_network'])
-    sdf_decoder = get_sdf_decoder(conf, init_weights=init_weight)
-    if conf.train.sdf_mode == 'mlp':
-        sdf_network = SDFNetwork(**conf['model.sdf_network'])
-    elif conf.train.sdf_mode == 'tri':
-        sdf_network = TriPlaneGenerator(**conf['model.triplane_network'])
+        non_rigid_mlp = NonRigidMotionMLP(**conf['model.non_rigid'], pos_embed_size=non_rigid_pos_embed_size)
+        models.update({'offset_net': offset_net, 'non_rigid_mlp': non_rigid_mlp})
+    elif deform_mode == 1:
+        skinning_model = get_skinning_model(conf, init_weight=init_weight)
+        models.update({'skinning_model': skinning_model})
     else:
-        raise KeyError(f"{conf.train.sdf_mode} is not a valid key!")
+        raise ValueError(f"Deform mode {deform_mode} is not supported!")
     
-    net_path = conf['model.nets_path']
+    # NeRF for outside rendering
+    if n_outside > 0:
+        nerf_outside = NeRF(**conf['model.nerf'])
+        models.update({'nerf_outside': nerf_outside})
+    
+    # SDF network
+    if sdf_mode == 0:
+        sdf_network = SDFNetwork(**conf['model.sdf_network'])
+        models.update({'sdf_network': sdf_network})
+    elif sdf_mode == 1:
+        sdf_network = TriPlaneGenerator(**conf['model.triplane_network'])
+        models.update({'sdf_network': sdf_network})
+    elif sdf_mode == 2:
+        sdf_decoder = get_sdf_decoder(conf, init_weights=init_weight)
+        models.update({'sdf_decoder': sdf_decoder})
+    else:
+        raise ValueError(f"SDF mode {sdf_mode} is not supported!")
+    
+    # Pose refiner and motion basis computer
+    pose_decoder = BodyPoseRefiner(total_bones=total_bones, **conf['model.pose_refiner'])
+    motion_basis_computer = MotionBasisComputer(total_bones)
     if init_weight and net_path is not None:
-        ckpt = torch.load(net_path, map_location='cpu')
-        
-        # pose_decoder
-        pose_decoder_fwd_state_dict = OrderedDict()
-        for k, v in ckpt['network'].items():
-            if k.startswith('module'):
-                k = k[7:]
-
-            if k.startswith('pose_decoder'):
-                pose_decoder_fwd_state_dict[k[13:]] = v
-
-        pose_decoder.load_state_dict(pose_decoder_fwd_state_dict, strict=False)
-        
-        # non_rigid_mlp
-        non_rigid_mlp_fwd_state_dict = OrderedDict()
-        for k, v in ckpt['network'].items():
-            if k.startswith('module'):
-                k = k[7:]
-
-            if k.startswith('non_rigid_mlp'):
-                non_rigid_mlp_fwd_state_dict[k[14:]] = v
-        non_rigid_mlp.load_state_dict(non_rigid_mlp_fwd_state_dict, strict=False)
+        pose_decoder, non_rigid_mlp = load_init_weight(net_path, pose_decoder, non_rigid_mlp)
+    
+    # Variance and rendering networks for neus rendering
+    deviation_network = SingleVarianceNetwork(**conf['model.variance_network'])
+    color_network = RenderingNetwork(**conf['model.rendering_network'])        
+    models.update({
+        'pose_decoder': pose_decoder,
+        'motion_basis_computer': motion_basis_computer,
+        'deviation_network': deviation_network,
+        'color_network': color_network,
+    })
     
     return HFAvatar(conf=conf,
-                    base_exp_dir=base_exp_dir, 
-                    pose_decoder=pose_decoder,
-                    motion_basis_computer=motion_basis_computer,
-                    offset_net=offset_net,
-                    non_rigid_mlp=non_rigid_mlp,
-                    nerf_outside=nerf_outside,
-                    deviation_network=deviation_network,
-                    color_network=color_network,
-                    sdf_network=sdf_network,
-                    sdf_decoder=sdf_decoder, 
-                    skinning_model=skinning_model,
-                    N_frames=N_frames,
-                    )
+                    models=models)
 
 # Datasets
 def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=None, end_frame=None):

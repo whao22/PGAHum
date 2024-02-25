@@ -5,6 +5,7 @@ import numpy as np
 import cv2
 from tqdm import tqdm
 import torch
+import logging
 import torch.utils.data
 import trimesh
 
@@ -88,7 +89,7 @@ class ZJUMoCapDataset(torch.utils.data.Dataset):
         self.images_np = np.stack(images).astype(np.float32) # (n_images, H, W, 3)
         self.masks_np = np.stack(masks).astype(np.float32) # (n_images, H, W, 1)
         
-        print(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
+        logging.info(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
 
     def load_canonical_joints(self):
         cl_joint_path = os.path.join(self.dataset_path, 'canonical_joints.pkl')

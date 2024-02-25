@@ -1,11 +1,11 @@
 import argparse
 import torch
-from glob import glob
 import wandb
 import logging
 import os
 import numpy as np
 import random
+from glob import glob
 import pytorch_lightning as pl
 
 from pyhocon import ConfigFactory
@@ -22,9 +22,6 @@ def parse_arguments():
     parser.add_argument('--epochs_per_run', type=int, default=-1, help='Number of epochs to train before restart.')
     parser.add_argument('--run_name', type=str, default='', help='Run name for Wandb logging.')
     args = parser.parse_args()
-    
-    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
-    logging.basicConfig(level=logging.INFO, format=FORMAT)
     return args
 
 def setup_seed(seed):
@@ -36,10 +33,18 @@ def setup_seed(seed):
 
 
 if __name__ == '__main__':
-    setup_seed(3407)
-    # Args and Conf
+    # command line args
     args = parse_arguments()
+    
+    # configration
     conf = ConfigFactory.parse_file(args.conf)
+    if args.base_exp_dir is not None:
+        conf.put('general.base_exp_dir', args.base_exp_dir)
+    
+    # setting up logging
+    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
+    logging.basicConfig(level=logging.INFO, format=FORMAT)
+    setup_seed(3407)
     
     # Dataset
     train_dloader = DataLoader(
@@ -56,7 +61,7 @@ if __name__ == '__main__':
         shuffle=False)
     
     # Model
-    model = module_config.get_model(conf, args.base_exp_dir)
+    model = module_config.get_model(conf)
     checkpoint_callback = ModelCheckpoint(save_top_k=0,
                                           dirpath=os.path.join(conf.general.base_exp_dir, 'checkpoints'),
                                           every_n_epochs=conf.train.save_every_epoch,

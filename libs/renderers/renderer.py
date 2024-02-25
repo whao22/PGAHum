@@ -15,40 +15,47 @@ SMPL_PARENT = {
 
 class IDHRenderer:
     def __init__(self,
-                 pose_decoder,
-                 motion_basis_computer,
-                 offset_net,
-                 skinning_model,
-                 non_rigid_mlp,
-                 nerf,
-                 sdf_network,
-                 deviation_network,
-                 color_network,
-                 n_samples,
-                 n_importance,
-                 n_outside,
-                 up_sample_steps,
-                 perturb,
-                 is_adasamp,
-                 total_bones,
-                 sdf_mode,
-                 inner_sampling,
-                 non_rigid_multries,
-                 N_iter_backward,
-                 non_rigid_kick_in_iter,
-                 non_rigid_full_band_iter,
-                 pose_refine_kick_in_iter,
-                 use_init_sdf,
-                 sdf_threshold):
-        self.pose_decoder = pose_decoder
-        self.motion_basis_computer = motion_basis_computer
-        self.offset_net = offset_net
-        self.skinning_model = skinning_model
-        self.non_rigid_mlp = non_rigid_mlp
-        self.nerf = nerf
-        self.sdf_network = sdf_network
-        self.deviation_network = deviation_network
-        self.color_network = color_network
+                 conf,
+                 models,
+                 total_bones = 24,
+                 sdf_mode = 1, 
+                 deform_mode = 1,
+                 inner_sampling = True,
+                 
+                 use_init_sdf = True,
+                 sdf_threshold = 0.05,
+                 N_iter_backward = 1,
+                 
+                 n_samples = 64,
+                 n_importance = 0,
+                 n_outside = 0,
+                 up_sample_steps = 4,
+                 perturb = 1.0,
+                 is_adasamp = True):
+
+        self.conf = conf
+        self.pose_decoder = models['pose_decoder']
+        self.motion_basis_computer = models['motion_basis_computer']
+        self.deviation_network = models['deviation_network']
+        self.color_network = models['color_network']
+        
+        # Deformer
+        if deform_mode == 0:
+            self.offset_net = models['offset_net']
+            self.non_rigid_mlp = models['non_rigid_mlp']
+        elif deform_mode == 1:
+            self.skinning_model = models['skinning_model']
+        else:
+            raise NotImplementedError
+        
+        # NeRF for outside rendering
+        if n_outside > 0:
+            self.nerf = models['nerf']
+        
+        # SDF network
+        if sdf_mode == 0 or sdf_mode == 1:
+            self.sdf_network = models['sdf_network']
+        
         self.n_samples = n_samples
         self.n_importance = n_importance
         self.n_outside = n_outside
@@ -57,13 +64,11 @@ class IDHRenderer:
         self.is_adasamp = is_adasamp
         self.total_bones = total_bones
         self.sdf_mode = sdf_mode
+        self.deform_mode = deform_mode
         self.inner_sampling = inner_sampling
-        self.non_rigid_multries = non_rigid_multries
+        
         self.N_iter_backward = N_iter_backward
         self.use_init_sdf = use_init_sdf
-        self.non_rigid_kick_in_iter = non_rigid_kick_in_iter
-        self.non_rigid_full_band_iter = non_rigid_full_band_iter
-        self.pose_refine_kick_in_iter = pose_refine_kick_in_iter
         self.sdf_threshold = sdf_threshold
     
     def dirs_from_pts(self, pts):
@@ -130,9 +135,9 @@ class IDHRenderer:
                     rays_o,
                     rays_d,
                     z_vals,
-                    sdf_decoder,
                     deform_kwargs,
                     sdf_kwargs,
+                    sdf_decoder,
                     background_color,
                     background_alpha,
                     background_sampled_color,
@@ -164,18 +169,21 @@ class IDHRenderer:
         points_obs = rays_o[..., None, :] + rays_d[..., None, :] * mid_z_vals[..., None]  # (N_rays, N_samples, 3)
         points_cnl, pts_W_pred, pts_W_sampled = self.deform_points(points_obs, **deform_kwargs)  # (N_rays, N_samples, 3)
         
-        dirs = self.dirs_from_pts(points_cnl) # (N_rays, N_samples, 3)
-        # dirs = self.deform_dirs(rays_d, points_cnl, transforms_bwd) # (N_rays, N_samples, 3)
+        if True:
+            dirs = self.dirs_from_pts(points_cnl) # (N_rays, N_samples, 3)
+        else:
+            dirs = self.deform_dirs(rays_d, points_cnl, transforms_bwd) # (N_rays, N_samples, 3)
+        
         points_cnl = points_cnl.reshape(-1, 3)
         dirs = dirs.reshape(-1, 3)
         
         s = self.deviation_network(torch.zeros([1]).to(points_cnl)).clip(1e-6, 1e3).detach()
         
         # nn forward
-        if self.sdf_mode == 'hyper_net':
+        if self.sdf_mode == 2:
             feature_vector, sdf = sample_sdf(points_cnl, sdf_decoder, out_feature=True, **sdf_kwargs)
             gradients = compute_gradient(sdf, points_cnl)
-        elif self.sdf_mode in ['mlp','tri']:
+        elif self.sdf_mode in [0, 1]:
             sdf_nn_output = self.sdf_network(points_cnl)
             delta_sdf = sdf_nn_output[:, :1]
             feature_vector = sdf_nn_output[:, 1:]
@@ -190,6 +198,8 @@ class IDHRenderer:
             else:
                 sdf = delta_sdf
                 distance_w = pts_W_sampled.clone().detach().sum(dim=-1).reshape(N_rays, N_samples)
+            
+            # distance_w = pts_W_sampled.clone().detach().sum(dim=-1).reshape(N_rays, N_samples)
             gradients = compute_gradient(sdf, points_cnl)
         else:
             raise ValueError(f'The sdf_mode is {self.sdf_mode}, which is not valid.')
@@ -253,12 +263,12 @@ class IDHRenderer:
             'weights': weights,
             'cdf': cdf.reshape(N_rays, N_samples),
             'gradient_error': gradient_error,
-            # 'inside_sphere': inside_sphere,
             'pts_W_pred': pts_W_pred,
             "pts_W_sampled": pts_W_sampled
         }
     
     def render(self, data, iter_step, cos_anneal_ratio=0.0, sdf_decoder=None):
+        self.iter_step = iter_step
         # unpack data
         ## rays
         batch_rays = data['batch_rays'].squeeze() # (N_rays, 12)
@@ -270,7 +280,7 @@ class IDHRenderer:
         else:
             near = batch_rays[..., 10:11] # (N_rays, 3)
             far = batch_rays[..., 11:12] # (N_rays, 3)
-            
+
         ## motion
         tjoints = data['tjoints'] # (batch_size, 24, 3)
         gtfs_02v = data['gtfs_02v'] # (batch_size, 24, 4, 4)
@@ -287,20 +297,11 @@ class IDHRenderer:
         background_color = data['background_color'][0] # (3)
         
         N_rays, _ = batch_rays.shape
-        if self.inner_sampling:
-            N_samples = z_vals.size(-1)
-        else:
-            N_samples = self.n_samples
         N_outside = self.n_outside
+        N_samples = z_vals.size(-1) if self.inner_sampling else self.n_samples
 
         # dst_gtfms (batch_size, 24, 4, 4)
-        dst_gtfms, pose_refine_error = self.get_dst_gtfms(iter_step, self.pose_refine_kick_in_iter, dst_Rs, dst_Ts, dst_posevec, self.total_bones, cnl_gtfms, tjoints, gtfs_02v)
-        
-        # get_non_rigid_embeder
-        non_rigid_pos_embed_fn, _ = get_embedder(multires=self.non_rigid_multries, 
-                                                 iter_val=iter_step,
-                                                 full_band_iter=self.non_rigid_full_band_iter,
-                                                 kick_in_iter=self.non_rigid_kick_in_iter)
+        dst_gtfms, pose_refine_error = self.get_dst_gtfms(dst_Rs, dst_Ts, dst_posevec, cnl_gtfms, tjoints, gtfs_02v)
         
         # pack required data which used in deforming points
         sdf_kwargs={
@@ -313,9 +314,6 @@ class IDHRenderer:
             "dst_gtfms": dst_gtfms,
             "dst_posevec": dst_posevec,
             "dst_vertices": dst_vertices,
-            "non_rigid_pos_embed_fn": non_rigid_pos_embed_fn,
-            "iter_step": iter_step,
-            "non_rigid_kick_in_iter": self.non_rigid_kick_in_iter,
         }
         
         if False:
@@ -334,7 +332,7 @@ class IDHRenderer:
             points_homo = torch.cat([tpose_vertices, homogen_coord], dim=-1).view(1, 6890, 4, 1)
             points_newa = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0]
             trimesh.Trimesh(points_newa[0].detach().cpu().numpy()).export("tvpose_vertices_from_tpose.obj")
-            
+        
         if self.inner_sampling:
             if False:
                 # additionally sample more points in rays
@@ -378,7 +376,7 @@ class IDHRenderer:
         # Background model
         background_alpha = None
         background_sampled_color = None
-        if self.n_outside > 0:
+        if N_outside > 0:
             z_vals_feed = torch.cat([z_vals, z_vals_outside], dim=-1) # (batch_size, n_sample+n_outside)
             ret_outside = self.render_outside(rays_o, rays_d, z_vals_feed, deform_kwargs)
 
@@ -389,9 +387,9 @@ class IDHRenderer:
         ret_fine = self.render_core(rays_o,
                                     rays_d,
                                     z_vals,
-                                    sdf_decoder,
                                     deform_kwargs,
                                     sdf_kwargs,
+                                    sdf_decoder,
                                     background_color=background_color,
                                     background_alpha=background_alpha,
                                     background_sampled_color=background_sampled_color,
@@ -400,11 +398,11 @@ class IDHRenderer:
         ret_fine['pose_refine_error'] = pose_refine_error
         return ret_fine
     
-    def get_dst_gtfms(self, iter_step, pose_refine_kick_in_iter, dst_Rs, dst_Ts, dst_posevec, total_bones, cnl_gtfms, tjoints, gtfs_02v):
+    def get_dst_gtfms(self, dst_Rs, dst_Ts, dst_posevec, cnl_gtfms, tjoints, gtfs_02v):
         pose_refine_error = None
         # pose refine and motion basis calculation
-        if iter_step >= pose_refine_kick_in_iter:
-            dst_Rs, dst_Ts, pose_refine_error = self.pose_refine(dst_Rs, dst_Ts, dst_posevec, total_bones)
+        if self.iter_step >= self.conf.model.pose_refiner.kick_in_iter:
+            dst_Rs, dst_Ts, pose_refine_error = self.pose_refine(dst_Rs, dst_Ts, dst_posevec, self.total_bones)
         dst_gtfms = self.motion_basis_computer(dst_Rs, dst_Ts, cnl_gtfms, tjoints)
         gtfs_02v_inv = torch.inverse(gtfs_02v)
         # gtfs_02v_inv = FastDiff4x4MinvFunction.apply(gtfs_02v.reshape(-1, 4, 4))[0].reshape_as(gtfs_02v)
@@ -458,15 +456,13 @@ class IDHRenderer:
         pose_refine_error = torch.nn.functional.l1_loss(refined_Rs, torch.eye(3,3).expand_as(refined_Rs).to(refined_Rs))
         return dst_Rs, dst_Ts, pose_refine_error
     
-    def deform_points(self, points_obs, dst_posevec=None, iter_step=1, dst_gtfms=None, non_rigid_kick_in_iter=1000, non_rigid_pos_embed_fn=None, **deform_kwargs):
+    def deform_points(self, points_obs, dst_posevec=None, dst_gtfms=None, **deform_kwargs):
         """deform the points in observation space into cononical space via Itertative Backward Deformation.
 
         Args:
             points_obs (tensor): (N, 3)
             dst_posevec (tensor, optional): pose vector. Defaults to None.
-            iter_step (int, optional): _description_. Defaults to 1.
-            non_rigid_kick_in_iter (int, optional): _description_. Defaults to 1000.
-
+            dst_gtfms (tensor, optional): bone transforms. Defaults to None.
         Returns:
             _type_: _description_
         """
@@ -475,23 +471,54 @@ class IDHRenderer:
         with torch.no_grad():
             points_skl, pts_W_sampled = self.backward_lbs_knn(points_obs, dst_gtfms, **deform_kwargs) # (1, N_points, 3)
         
-        pts_W_pred = None
-        # if N_iter_backward >= 1, use iterative backward deformation, cnl = points_obs * weights
-        if self.N_iter_backward > 0 and iter_step >= non_rigid_kick_in_iter:
-            for i in range(self.N_iter_backward):
-                points_skl, pts_W_pred = self.backward_lbs_nn(points_obs, dst_gtfms, points_skl) # (1, N_points, 3)
-            points_cnl = points_skl.clone()
-        
-        # if N_iter_backward <= 0, not use iterative backward deformation, cnl = points_skl + points_offset
         # for free-viewpoint rendering instead of general pose
-        elif self.N_iter_backward <= 0:
-            points_skl = points_skl.reshape(-1, 3) # (N_points, 3)
-            non_rigid_embed_xyz = non_rigid_pos_embed_fn(points_skl)
-            non_rigid_mlp_input = torch.zeros_like(dst_posevec) if iter_step < non_rigid_kick_in_iter else dst_posevec # (1, 69)
-            points_cnl = self.non_rigid_mlp(pos_embed=non_rigid_embed_xyz, pos_xyz=points_skl, condition_code=non_rigid_mlp_input)['xyz']
+        if self.deform_mode == 0:
+            points_cnl = self.deform_points_non_rigid(points_skl, dst_posevec) 
+            pts_W_pred = None
+        elif self.deform_mode == 1:
+            points_cnl, pts_W_pred = self.deform_points_skinning(points_obs, dst_gtfms, points_skl)
+        else:
+            raise ValueError('Unknown deform_mode: {}'.format(self.deform_mode))
         
         return points_cnl.reshape(N_rays, N_samples, 3), pts_W_pred, pts_W_sampled
 
+    def deform_points_skinning(self, points_obs: torch.Tensor, dst_gtfms: torch.Tensor, points_skl: torch.Tensor):
+        """Deform the points in observation space into cononical space by querying the skinning 
+        weights from skinning model.
+
+        Args:
+            points_obs (torch.Tensor): _description_
+            dst_gtfms (torch.Tensor): _description_
+            points_skl (torch.Tensor): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        for i in range(self.N_iter_backward):
+            pts_W_pred = self.query_weights(points_skl) # (1, N_points, 24)
+            points_skl = self.backward_lbs(points_obs, dst_gtfms, pts_W_pred) # (1, N_points, 3)
+        return points_skl, pts_W_pred
+    
+    def deform_points_non_rigid(self, points_skl: torch.Tensor, dst_posevec: torch.Tensor):
+        points_skl = points_skl.reshape(-1, 3) # (N_points, 3)
+        
+        multires = self.conf.model.non_rigid.multires
+        full_band_iter = self.conf.model.non_rigid.full_band_iter
+        kick_in_iter = self.conf.model.non_rigid.kick_in_iter
+                            
+        # get_non_rigid_embeder
+        pos_embed_fn, _ = get_embedder(iter_val = self.iter_step,
+                                    multires = multires,
+                                    full_band_iter = full_band_iter,
+                                    kick_in_iter = kick_in_iter)
+        
+        non_rigid_embed_xyz = pos_embed_fn(points_skl)
+        non_rigid_mlp_input = torch.zeros_like(dst_posevec) if self.iter_step < kick_in_iter else dst_posevec # (1, 69)
+        points_cnl = self.non_rigid_mlp(pos_embed = non_rigid_embed_xyz, 
+                                        pos_xyz = points_skl, 
+                                        condition_code = non_rigid_mlp_input)['xyz']
+        return points_cnl
+    
     def query_weights(self, points):
         """Canonical point -> deformed point
 
@@ -516,7 +543,7 @@ class IDHRenderer:
 
         return w_ret
 
-    def backward_lbs_nn(self, points_obs, dst_gtfms, points_skl, inverse=False):
+    def backward_lbs(self, points_obs, dst_gtfms, pts_weights):
         ''' Backward skinning based on neural network predicted skinning weights 
         Args:
             points_obs (tensor): canonical points. shape: [B, N, D]
@@ -528,16 +555,14 @@ class IDHRenderer:
         batch_size, N_points, _ = points_obs.shape
         device = points_obs.device
         
-        pts_W_pred = self.query_weights(points_skl) # (1, N_points, 24)
-        
-        transforms_fwd = torch.matmul(pts_W_pred, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
+        transforms_fwd = torch.matmul(pts_weights, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
         transforms_bwd = torch.inverse(transforms_fwd)
         # transforms_bwd = FastDiff4x4MinvFunction.apply(transforms_fwd.reshape(-1, 4, 4))[0].reshape_as(transforms_fwd)
         homogen_coord = torch.ones(batch_size, N_points, 1, dtype=torch.float32, device=device)
         points_homo = torch.cat([points_obs, homogen_coord], dim=-1).view(batch_size, N_points, 4, 1)
         points_cnl = torch.matmul(transforms_bwd, points_homo)[..., :3, 0]
         
-        return points_cnl, pts_W_pred
+        return points_cnl
     
     def backward_lbs_nn_einsum(self, x, w, tfs, inverse=False):
         ''' Backward skinning based on neural network predicted skinning weights 
@@ -564,6 +589,25 @@ class IDHRenderer:
 
         return x_h[:, :, :3], w_tf, w_tf_inv
     
+    def decay_from_dists(self, dists:torch.Tensor, min_dist=0, max_dist=1):
+        """decay factor from distance
+
+        Args:
+            dists (tensor): (B, N, K)
+            min_dist (float, optional): minimum distance. Defaults to 0.
+            max_dist (float, optional): maximum distance. Defaults to 4.
+
+        Returns:
+            tensor: (B, N, K)
+        """
+        dists = dists.clamp(min=min_dist, max=max_dist)
+        # linera decay
+        # decay_factor = 1 - (dists - min_dist) / (max_dist - min_dist)
+        # exponential decay
+        decay_factor = 1 / (500*dists + 1)
+        
+        return decay_factor
+    
     def backward_lbs_knn(self, points_obs, dst_gtfms, dst_vertices, skinning_weights, **kwargs):
         """Backward skinning based on nearest neighbor SMPL skinning weights
 
@@ -588,30 +632,18 @@ class IDHRenderer:
         
         w = p_dists.sum(-1, True) / (p_dists + 1e-8)
         w = w / (w.sum(-1, True) + 1e-8)
+        decay_factor = self.decay_from_dists(p_dists)
         bv, _ = torch.meshgrid([torch.arange(batch_size).to(device), torch.arange(N_points).to(device)], indexing='ij')
         pts_W_sampled = 0.
         for i in range(N_knn):
-            pts_W_sampled += skinning_weights[bv, p_idx[..., i], :] * w[..., i:i+1]
-            # pts_W_sampled += skinning_weights[bv, p_idx[..., i], :]
+            pts_W_sampled += skinning_weights[bv, p_idx[..., i], :] * w[..., i:i+1] * decay_factor[..., i:i+1]
 
-        transforms_fwd = torch.matmul(pts_W_sampled, dst_gtfms.view(batch_size, -1, 16)).view(batch_size, N_points, 4, 4)
-        transforms_bwd = torch.inverse(transforms_fwd)
-        # transforms_bwd = FastDiff4x4MinvFunction.apply(transforms_fwd.reshape(-1, 4, 4))[0].reshape_as(transforms_fwd)
-
-        homogen_coord = torch.ones(batch_size, N_points, 1, dtype=torch.float32, device=device)
-        points_homo = torch.cat([points_obs, homogen_coord], dim=-1).view(batch_size, N_points, 4, 1)
-        points_cnl = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0] # (1， N_points, 3)
+        points_cnl = self.backward_lbs(points_obs, dst_gtfms, pts_W_sampled)
         
         if False:
             import trimesh
-            
-            transforms_fwda = torch.matmul(skinning_weights, dst_gtfms.view(1, -1, 16)).view(1, 6890, 4, 4)
-            transforms_bwda = torch.inverse(transforms_fwda)
-
-            homogen_coord = torch.ones(1, 6890, 1, dtype=torch.float32, device=dst_gtfms.device)
-            points_homo = torch.cat([dst_vertices, homogen_coord], dim=-1).view(1, 6890, 4, 1)
-            points_newa = torch.matmul(transforms_bwda, points_homo)[:, :, :3, 0]
+            points_newa = self.backward_lbs(dst_vertices, dst_gtfms, skinning_weights)
             trimesh.Trimesh(points_newa[0].detach().cpu().numpy()).export("tvpose_vertices_from_posed.obj")
-            
+        
         return points_cnl, pts_W_sampled
         

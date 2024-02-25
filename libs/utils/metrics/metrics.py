@@ -1,7 +1,7 @@
 import torch
 import cv2
 import numpy as np
-from libs.utils import pytorch_ssim
+from libs.utils.metrics import pytorch_ssim
 from skimage.metrics import structural_similarity as compute_ssim
 
 def psnr_metric(img_pred, img_gt):

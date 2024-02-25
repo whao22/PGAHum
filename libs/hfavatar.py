@@ -1,21 +1,22 @@
 import os
-from typing import Optional
-import numpy as np
-from pytorch_lightning.utilities.types import STEP_OUTPUT
 import torch
 import lpips
 import cv2
+import logging
+import numpy as np
+from typing import Optional
 from collections import OrderedDict
-from torch.optim.optimizer import Optimizer
 from tqdm import tqdm
+
+import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-import torch.nn as nn
+from torch.optim.optimizer import Optimizer
 
-from libs.utils import pytorch_ssim
-from libs.utils.general_utils import augm_rots, sample_sdf_from_grid
-from libs.utils.metrics import psnr_metric, ssim_metric, lpips_metric
-
+from libs.utils.metrics import pytorch_ssim
+from libs.utils.general_utils import augm_rots, feasible
+from libs.utils.network_utils import set_requires_grad
+from libs.utils.metrics.metrics import psnr_metric, ssim_metric, lpips_metric
 from libs.renderers.renderer import IDHRenderer
 from libs.renderers.loss import IDHRLoss
 
@@ -28,147 +29,148 @@ def mse2psnr(mse):
     psnr = -10.0 * np.log10(mse)
     return psnr.astype(np.float32)
 
-def set_requires_grad(nets, requires_grad=False):
-    if not isinstance(nets, list):
-        nets = [nets]
-    for net in nets:
-        if net is not None:
-            for param in net.parameters():
-                param.requires_grad = requires_grad
-                
 class HFAvatar(pl.LightningModule):
     def __init__(self, 
-                conf, 
-                base_exp_dir, 
-                pose_decoder,
-                motion_basis_computer,
-                offset_net,
-                non_rigid_mlp,
-                nerf_outside,
-                deviation_network,
-                color_network,
-                sdf_network,
-                sdf_decoder, 
-                skinning_model,
-                N_frames):
+                conf,
+                models: dict):
         super().__init__()
+        
         self.conf = conf
-  
-        # make exp dir
-        if base_exp_dir is not None:
-            self.conf.put('general.base_exp_dir', base_exp_dir)
-        
-        self.base_exp_dir = conf['general.base_exp_dir']
-        print(f"Base experiment directory is {self.base_exp_dir}")
-        os.makedirs(self.base_exp_dir, exist_ok=True)
-        
-        # flags
-        self.anneal_end = conf['train.anneal_end']
-        self.total_bones = conf['general.total_bones']
-        self.batch_size = conf['train.batch_size']
+        self.lr = conf.train.lr
+        self.base_exp_dir = conf.general.base_exp_dir
+        self.warm_up_end = conf.train.warm_up_end
+        self.anneal_end = conf.train.anneal_end
+        self.total_bones = conf.general.total_bones
+        self.batch_size = conf.train.batch_size
         self.N_rays = conf.dataset.patch_size**2 * conf.dataset.N_patches
         self.resolution_level = conf.dataset.res_level
-        self.lr = conf.train.lr
-        self.warm_up_end = conf.train.warm_up_end
-        self.view_input_noise = conf.train.view_input_noise
-        self.pose_input_noise = conf.train.pose_input_noise
-        self.nv_noise_type = conf.train.nv_noise_type
-        self.sdf_mode = conf.train.sdf_mode
+        
+        self.sdf_mode = conf.model.sdf_mode
+        self.deform_mode = conf.model.deform_mode
         self.inner_sampling = conf.dataset.inner_sampling
         
+        logging.info(f"Base experiment directory is {self.base_exp_dir}")
+        os.makedirs(self.base_exp_dir, exist_ok=True)
+        
         # Loss Function
-        rgb_loss_type = conf['train.rgb_loss_type']
         self.lpips = lpips.LPIPS(net='vgg')
         set_requires_grad(self.lpips, requires_grad=False)
         self.criteria = IDHRLoss(**conf['train.weights'],
-                                 rgb_loss_type=rgb_loss_type,
+                                 rgb_loss_type=conf.train.rgb_loss_type,
                                  lpips = self.lpips)
         
         # Networks
-        self.pose_decoder = pose_decoder
-        self.motion_basis_computer = motion_basis_computer
-        self.offset_net = offset_net
-        self.non_rigid_mlp = non_rigid_mlp
-        self.nerf_outside = nerf_outside
-        self.deviation_network = deviation_network
-        self.color_network = color_network
-        self.sdf_decoder = sdf_decoder
-        self.sdf_network = sdf_network
-        self.skinning_model = skinning_model
+        self.models = {}
+        self.pose_decoder = models['pose_decoder']
+        self.motion_basis_computer = models['motion_basis_computer']
+        self.deviation_network = models['deviation_network']
+        self.color_network = models['color_network']
+        self.models.update({
+            "pose_decoder": self.pose_decoder,
+            "motion_basis_computer": self.motion_basis_computer,
+            "deviation_network": self.deviation_network,
+            "color_network": self.color_network,
+        })
+        # Deformer
+        if self.deform_mode == 0:
+            self.offset_net = models['offset_net']
+            self.non_rigid_mlp = models['non_rigid_mlp']
+            self.models.update({
+                "offset_net": self.offset_net,
+                "non_rigid_mlp": self.non_rigid_mlp,
+            })
+        elif self.deform_mode == 1:
+            self.skinning_model = models['skinning_model']
+            self.models.update({
+                "skinning_model": self.skinning_model,
+            })
+        else:
+            raise NotImplementedError
+        # NeRF for outside rendering
+        if self.conf.model.neus_renderer.n_outside > 0:
+            self.nerf = models['nerf']
+            self.models.update({
+                "nerf": self.nerf,
+            })
+        # SDF network
+        if self.sdf_mode == 0 or self.sdf_mode == 1:
+            self.sdf_network = models['sdf_network']
+            self.models.update({
+                "sdf_network": self.sdf_network,
+            })
+        elif self.sdf_mode == 2:
+            self.sdf_decoder = models['sdf_decoder']
+        else:
+            raise NotImplementedError
         
         # Renderer
-        self.latent = nn.Embedding(N_frames, 128)
-        self.renderer = IDHRenderer(pose_decoder=self.pose_decoder,
-                                    motion_basis_computer=self.motion_basis_computer,
-                                    offset_net=self.offset_net,
-                                    skinning_model=self.skinning_model,
-                                    non_rigid_mlp=self.non_rigid_mlp,
-                                    nerf=self.nerf_outside,
-                                    sdf_network=self.sdf_network,
-                                    deviation_network=self.deviation_network,
-                                    color_network=self.color_network,
-                                    total_bones=self.total_bones,
+        self.latent = nn.Embedding(conf.dataset.N_frames, 128)
+        self.renderer = IDHRenderer(conf = self.conf,
+                                    models = self.models,
+                                    total_bones = self.total_bones,
                                     sdf_mode = self.sdf_mode,
+                                    deform_mode = self.deform_mode,
                                     inner_sampling = self.inner_sampling,
-                                    non_rigid_multries = conf.model.non_rigid.multires,
-                                    non_rigid_kick_in_iter= conf.model.non_rigid.kick_in_iter,
-                                    non_rigid_full_band_iter=conf.model.non_rigid.full_band_iter,
-                                    pose_refine_kick_in_iter=conf.model.pose_refiner.kick_in_iter,
+                                    use_init_sdf = conf.model.use_init_sdf,
+                                    sdf_threshold = conf.model.sdf_threshold,
+                                    N_iter_backward = conf.model.N_iter_backward,
                                     **self.conf.model.neus_renderer)
-        
+    
     def get_cos_anneal_ratio(self):
         if self.anneal_end == 0.0:
             return 1.0
         else:
             return np.min([1.0, self.global_step / self.anneal_end])
     
-    def get_sdf_decoder(self, inputs, idx):
+    def get_sdf_decoder(self, inputs, idx, eval=False):     
+        view_input_noise = self.conf.train.view_input_noise
+        pose_input_noise = self.conf.train.pose_input_noise
+        nv_noise_type = self.conf.train.nv_noise_type
+        
         rots = inputs['dst_Rs']
         Jtrs = inputs['tjoints']
-
         batch_size = rots.size(0)
         device = rots.device
-        
+
         decoder_input = {'coords': torch.zeros(1, 1, 3, dtype=torch.float32, device=device), 'rots': rots[0].reshape(-1, 9).unsqueeze(0), 'Jtrs': Jtrs[0].unsqueeze(0)}
         if 'geo_latent_code_idx' in inputs.keys():
             geo_latent_code = self.latent(inputs['geo_latent_code_idx'])
             decoder_input.update({'latent': geo_latent_code})
 
         # Do augmentation to input poses and views, if applicable
-        with_noise = False
-        if (self.pose_input_noise or self.view_input_noise) and not eval:
+        if (pose_input_noise or view_input_noise) and not eval:
             if np.random.uniform() <= 0.5:
-                if self.pose_input_noise:
+                if pose_input_noise:
                     decoder_input['rots_noise'] = torch.normal(mean=0, std=0.1, size=rots.shape, dtype=rots.dtype, device=device)
                     inputs['pose_cond']['rot_noise'] = torch.normal(mean=0, std=0.1, size=(batch_size,9), dtype=rots.dtype, device=device)
                     inputs['pose_cond']['trans_noise'] = torch.normal(mean=0, std=0.1, size=(batch_size,3), dtype=rots.dtype, device=device)
 
-                if self.view_input_noise:
-                    if self.nv_noise_type == 'gaussian':
+                if view_input_noise:
+                    if nv_noise_type == 'gaussian':
                         inputs['pose_cond']['view_noise'] = torch.normal(mean=0, std=0.1, size=inputs['ray_dirs'].shape, dtype=rots.dtype, device=device)
-                    elif self.nv_noise_type == 'rotation':
+                    elif nv_noise_type == 'rotation':
                         inputs['pose_cond']['view_noise'] = torch.tensor(augm_rots(45, 45, 45), dtype=torch.float32, device=device).unsqueeze(0)
                     else:
                         raise ValueError('wrong nv_noise_type, expected either gaussian or rotation, got {}'.format(self.nv_noise_type))
-
-                with_noise = True
         
         # Generate SDF network from hypernetwork (MetaAvatar)
         output = self.sdf_decoder(decoder_input) 
-        # output['model_out'] = output['model_out'] + sample_sdf_from_grid(decoder_input['coords'], inputs['smpl_sdf']) # TODO update sdf
         sdf_decoder = output['decoder']
         sdf_params = output['params']
         return sdf_decoder, sdf_params
     
     def training_step(self, batch, idx):
-        sdf_decoder = None
-        sdf_params = None
-        if self.sdf_mode == 'hyper_net':
+        if self.sdf_mode == 2:
             sdf_decoder, sdf_params = self.get_sdf_decoder(batch, idx)
         
         # forward
-        render_out = self.renderer.render(batch, self.global_step, cos_anneal_ratio=self.get_cos_anneal_ratio(), sdf_decoder=sdf_decoder)
-        loss_results = self.criteria(render_out, batch, sdf_params)
+        render_out = self.renderer.render(batch, 
+                                          self.global_step, 
+                                          cos_anneal_ratio = self.get_cos_anneal_ratio(), 
+                                          sdf_decoder = sdf_decoder if self.sdf_mode == 2 else None)
+        loss_results = self.criteria(render_out,
+                                     batch, 
+                                     sdf_params if self.sdf_mode == 2 else None)
         
         # loss
         self.log('loss_color', loss_results['loss_color'])
@@ -182,18 +184,13 @@ class HFAvatar(pl.LightningModule):
         self.log('loss', loss_results['loss'])
         
         return loss_results['loss']
-        
+    
     def on_before_optimizer_step(self, optimizer: Optimizer, optimizer_idx: int) -> None:
         self.update_learning_rate(optimizer)
     
     def test_step(self, data, idx):
-        sdf_decoder = None
-        sdf_params = None
-        if self.sdf_mode == 'hyper_net':
+        if self.sdf_mode == 2:
             sdf_decoder, sdf_params = self.get_sdf_decoder(data, idx)
-        
-        def feasible(key):
-            return (key in render_out) and (render_out[key] is not None)
         
         with torch.enable_grad():
             n_batches = int(data['batch_rays'].size(1) / self.N_rays)
@@ -206,14 +203,18 @@ class HFAvatar(pl.LightningModule):
                 if self.inner_sampling:
                     data_batch['z_vals'] = data_batch['z_vals'][:, i*self.N_rays:(i+1)*self.N_rays]
                     data_batch['hit_mask'] = data_batch['hit_mask'][:, i*self.N_rays:(i+1)*self.N_rays]
-                render_out = self.renderer.render(data_batch, self.global_step, cos_anneal_ratio=self.get_cos_anneal_ratio(), sdf_decoder=sdf_decoder)
+                
+                render_out = self.renderer.render(data_batch, 
+                                                  self.global_step, 
+                                                  cos_anneal_ratio = self.get_cos_anneal_ratio(), 
+                                                  sdf_decoder = sdf_decoder if self.sdf_mode == 2 else None)
 
-                if feasible('color'):
+                if feasible('color', render_out):
                     out_rgb_fine.append(render_out['color'].detach().cpu().numpy())
-                if feasible('gradients') and feasible('weights'):
+                if feasible('gradients', render_out) and feasible('weights', render_out):
                     n_samples = self.renderer.n_samples + self.renderer.n_importance
                     normals = render_out['gradients'] * render_out['weights'][:, :n_samples, None]
-                    if feasible('inside_sphere'):
+                    if feasible('inside_sphere', render_out):
                         normals = normals * render_out['inside_sphere'][..., None]
                     normals = normals.sum(dim=1).detach().cpu().numpy()
                     # normals = (normals.sum(dim=1)**2).sum(dim=1,keepdim=True).sqrt().tile(1,3).detach().cpu().numpy()
@@ -249,13 +250,8 @@ class HFAvatar(pl.LightningModule):
             )
     
     def validation_step(self, data, idx):
-        sdf_decoder = None
-        sdf_params = None
         if self.sdf_mode == 'hyper_net':
             sdf_decoder, sdf_params = self.get_sdf_decoder(data, idx)
-        
-        def feasible(key):
-            return (key in render_out) and (render_out[key] is not None)
         
         with torch.enable_grad():
             n_batches = int(data['batch_rays'].size(1) / self.N_rays)
@@ -269,14 +265,18 @@ class HFAvatar(pl.LightningModule):
                 if self.inner_sampling:
                     data_batch['z_vals'] = data_batch['z_vals'][:, i*self.N_rays:(i+1)*self.N_rays]
                     data_batch['hit_mask'] = data_batch['hit_mask'][:, i*self.N_rays:(i+1)*self.N_rays]
-                render_out = self.renderer.render(data_batch, self.global_step, cos_anneal_ratio=self.get_cos_anneal_ratio(), sdf_decoder=sdf_decoder)
+                
+                render_out = self.renderer.render(data_batch, 
+                                                  self.global_step, 
+                                                  cos_anneal_ratio = self.get_cos_anneal_ratio(), 
+                                                  sdf_decoder = sdf_decoder if self.sdf_mode == 2 else None)
 
-                if feasible('color'):
+                if feasible('color', render_out):
                     out_rgb_fine.append(render_out['color'].detach().cpu().numpy())
-                if feasible('gradients') and feasible('weights'):
+                if feasible('gradients', render_out) and feasible('weights', render_out):
                     n_samples = self.renderer.n_samples + self.renderer.n_importance
                     normals = render_out['gradients'] * render_out['weights'][:, :n_samples, None]
-                    if feasible('inside_sphere'):
+                    if feasible('inside_sphere', render_out):
                         normals = normals * render_out['inside_sphere'][..., None]
                     normals = normals.sum(dim=1).detach().cpu().numpy()
                     # normals = (normals.sum(dim=1)**2).sum(dim=1,keepdim=True).sqrt().tile(1,3).detach().cpu().numpy()
@@ -356,7 +356,7 @@ class HFAvatar(pl.LightningModule):
             self.log('PSNR', psnr)
             self.log('SSIM', ssim)
             self.log('LPIPS', lpips)
-        
+    
     def update_learning_rate(self, optimizer):
         decay_rate = 0.1
         decay_steps = self.warm_up_end * 1000
@@ -370,31 +370,39 @@ class HFAvatar(pl.LightningModule):
                 new_lr = self.lr * learning_factor
             param_group['lr'] = new_lr
         self.log('lr', new_lr)
-        
+    
     def configure_optimizers(self):
-        # get optimizer
-        nets_to_train={
-            # 'sdf_network': self.sdf_network,
+        nets_to_train = {}
+        nets_to_train.update({
             'pose_decoder': self.pose_decoder,
-            'offset_net': self.offset_net,
-            'skinning_model': self.skinning_model,
-            'non_rigid_mlp': self.non_rigid_mlp,
-            'nerf_outside': self.nerf_outside,
             'deviation_network': self.deviation_network,
             'color_network': self.color_network
-        }
-        if self.sdf_mode == 'hyper_net':
-            nets_to_train['sdf_decoder_net'] = self.sdf_decoder.net.layers
-            nets_to_train['sdf_decoder_pose_encoder'] = self.sdf_decoder.pose_encoder
-        else:
-            nets_to_train['sdf_network'] = self.sdf_network
-            
-        optimizer = self.get_optimizer_(nets_to_train)
+        })
+        
+        if self.sdf_mode in [0, 1]:
+            nets_to_train.update({
+                'sdf_network': self.sdf_network
+            })
+        elif self.sdf_mode == 2:
+            self.models.update({
+                'sdf_decoder_net': self.sdf_decoder.net.layers,
+                'sdf_decoder_pose_encoder': self.sdf_decoder.pose_encoder
+            })
+        
+        if self.deform_mode == 1:
+            nets_to_train.update({
+                'skinning_model': self.skinning_model
+            })
+        
+        optimizer = self.get_optimizer_(self.models)
         return optimizer
     
     def get_optimizer_(self, nets_to_train):
         params_to_train = []
         for model in nets_to_train:
+            if model in ['sdf_decoder', 'motion_basis_computer']:
+                continue
+            
             lr = self.conf.train.get_float(f'lr_{model}', 0)
             params_to_train += [{
                 "params": nets_to_train[model].parameters(),

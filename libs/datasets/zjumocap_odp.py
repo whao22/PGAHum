@@ -2,6 +2,7 @@ import os
 import pickle
 import numpy as np
 import cv2
+import logging
 from tqdm import tqdm
 import torch
 import torch.utils.data
@@ -71,7 +72,7 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
         self.J_regressor = dict(np.load('data/body_models/misc/J_regressors.npz'))
         self.smpl_sdf = np.load(os.path.join(self.dataset_path, 'smpl_sdf.npy'), allow_pickle=True).item()
         
-        print(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
+        logging.info(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
         
     def load_canonical_joints(self):
         cl_joint_path = os.path.join(self.dataset_path, 'canonical_joints.pkl')

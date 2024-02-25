@@ -8,6 +8,9 @@ from libs.utils.MCAcc import GridSamplerMine3dFunction
 # from libs.utils.grid_sample_3d import grid_sample_3d
 # from libs.utils.ops.grid_sample import grid_sample_3d as grid_sample_3d_cuda
 
+def feasible(key, render_out):
+    return (key in render_out) and (render_out[key] is not None)
+    
 def sample_sdf_from_grid(points, cnl_grid_sdf, cnl_bbmin, cnl_bbmax, **kwargs):
     ori_shape = points.shape
     if len(points.shape) == 2:
@@ -491,21 +494,21 @@ def rays_mesh_intersections_pcu(rays_o, rays_d, vertices, faces, mode='barycentr
     return hit_mask, hit_triangles, hit_points, distances
 
 def inv_transform_points_smpl_verts(self, points, smpl_verts, skinning_weights, bone_transforms, trans, coord_min, coord_max, center):
-        ''' Backward skinning based on nearest neighbor SMPL skinning weights '''
-        batch_size, n_pts, _ = points.size()
-        device = points.device
-        knn_ret = pytorch3d.ops.knn_points(points, smpl_verts)
-        p_idx = knn_ret.idx.squeeze(-1)
-        bv, _ = torch.meshgrid([torch.arange(batch_size).to(device), torch.arange(n_pts).to(device)], indexing='ij')
-        pts_W = skinning_weights[bv, p_idx, :]
-        # _, part_idx = pts_W.max(-1)
+    ''' Backward skinning based on nearest neighbor SMPL skinning weights '''
+    batch_size, n_pts, _ = points.size()
+    device = points.device
+    knn_ret = pytorch3d.ops.knn_points(points, smpl_verts)
+    p_idx = knn_ret.idx.squeeze(-1)
+    bv, _ = torch.meshgrid([torch.arange(batch_size).to(device), torch.arange(n_pts).to(device)], indexing='ij')
+    pts_W = skinning_weights[bv, p_idx, :]
+    # _, part_idx = pts_W.max(-1)
 
-        transforms_fwd = torch.matmul(pts_W, bone_transforms.view(batch_size, -1, 16)).view(batch_size, n_pts, 4, 4)
-        transforms_bwd = torch.inverse(transforms_fwd)
+    transforms_fwd = torch.matmul(pts_W, bone_transforms.view(batch_size, -1, 16)).view(batch_size, n_pts, 4, 4)
+    transforms_bwd = torch.inverse(transforms_fwd)
 
-        homogen_coord = torch.ones(batch_size, n_pts, 1, dtype=torch.float32, device=device)
-        points_homo = torch.cat([points - trans, homogen_coord], dim=-1).view(batch_size, n_pts, 4, 1)
-        points_new = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0]
-        points_new = normalize_canonical_points(points_new, coord_min, coord_max, center)
+    homogen_coord = torch.ones(batch_size, n_pts, 1, dtype=torch.float32, device=device)
+    points_homo = torch.cat([points - trans, homogen_coord], dim=-1).view(batch_size, n_pts, 4, 1)
+    points_new = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0]
+    points_new = normalize_canonical_points(points_new, coord_min, coord_max, center)
 
-        return points_new, transforms_fwd
+    return points_new, transforms_fwd
