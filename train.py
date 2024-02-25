@@ -11,6 +11,7 @@ import pytorch_lightning as pl
 from pyhocon import ConfigFactory
 from torch.utils.data import DataLoader
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning import seed_everything
 
 from libs import module_config
 
@@ -24,14 +25,6 @@ def parse_arguments():
     args = parser.parse_args()
     return args
 
-def setup_seed(seed):
-     torch.manual_seed(seed)
-     torch.cuda.manual_seed_all(seed)
-     np.random.seed(seed)
-     random.seed(seed)
-     torch.backends.cudnn.deterministic = True
-
-
 if __name__ == '__main__':
     # command line args
     args = parse_arguments()
@@ -44,7 +37,7 @@ if __name__ == '__main__':
     # setting up logging
     FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
     logging.basicConfig(level=logging.INFO, format=FORMAT)
-    setup_seed(3407)
+    seed_everything(3407)
     
     # Dataset
     train_dloader = DataLoader(

@@ -199,7 +199,6 @@ class IDHRenderer:
                 sdf = delta_sdf
                 distance_w = pts_W_sampled.clone().detach().sum(dim=-1).reshape(N_rays, N_samples)
             
-            # distance_w = pts_W_sampled.clone().detach().sum(dim=-1).reshape(N_rays, N_samples)
             gradients = compute_gradient(sdf, points_cnl)
         else:
             raise ValueError(f'The sdf_mode is {self.sdf_mode}, which is not valid.')
@@ -347,7 +346,6 @@ class IDHRenderer:
                 N_samples = self.n_samples
         else:
             # calculate depth in rays
-            sample_dist = 2.0 / self.n_samples   # Assuming the region of interest is a unit sphere
             z_vals = torch.linspace(0.0, 1.0, N_samples).to(near)
             z_vals = near + (far - near) * z_vals[None, :] # (batch_size, n_samples)
         
@@ -355,13 +353,14 @@ class IDHRenderer:
             z_vals_outside = torch.linspace(1e-3, 1.0 - 1.0 / (N_outside + 1.0), N_outside).to(near) # (N_outside, )
         
         if self.perturb > 0:
-            # t_rand = torch.rand_like(z_vals) - 0.5
-            # z_dists = torch.zeros_like(z_vals)
-            # z_dists[..., :-1] = z_vals[..., 1:] - z_vals[..., :-1]
-            # z_dists[..., -1:] = z_dists[..., :-1].mean(dim=-1, keepdim=True)
-            # z_vals = z_vals + t_rand * z_dists # (N_rays, N_samples)
-            t_rand = (torch.rand([N_rays, 1]).to(near) - 0.5)
-            z_vals = z_vals + t_rand * 2.0 / N_samples # (batch_size, n_samples)
+            t_rand = torch.rand_like(z_vals) - 0.5
+            z_dists = torch.zeros_like(z_vals)
+            z_dists[..., :-1] = z_vals[..., 1:] - z_vals[..., :-1]
+            z_dists[..., -1:] = z_dists[..., :-1].mean(dim=-1, keepdim=True)
+            z_vals = z_vals + t_rand * z_dists # (N_rays, N_samples)
+            
+            # t_rand = (torch.rand([N_rays, 1]).to(near) - 0.5)
+            # z_vals = z_vals + t_rand * 2.0 / N_samples # (batch_size, n_samples)
             
             if N_outside > 0:
                 mids = .5 * (z_vals_outside[..., 1:] + z_vals_outside[..., :-1])
@@ -589,7 +588,7 @@ class IDHRenderer:
 
         return x_h[:, :, :3], w_tf, w_tf_inv
     
-    def decay_from_dists(self, dists:torch.Tensor, min_dist=0, max_dist=1):
+    def decay_from_dists(self, dists:torch.Tensor):
         """decay factor from distance
 
         Args:
@@ -600,11 +599,17 @@ class IDHRenderer:
         Returns:
             tensor: (B, N, K)
         """
-        dists = dists.clamp(min=min_dist, max=max_dist)
+        dists = dists.clamp(min=0., max=1.)
+        
         # linera decay
         # decay_factor = 1 - (dists - min_dist) / (max_dist - min_dist)
+        
+        # reciprocal decay
+        # decay_factor = 1 / (500*dists + 1)
+        
         # exponential decay
-        decay_factor = 1 / (500*dists + 1)
+        alpha = 1
+        decay_factor = (1 - dists**alpha).clamp(min=1e-8, max=1.0)
         
         return decay_factor
     
@@ -624,15 +629,20 @@ class IDHRenderer:
         """
         batch_size, N_points, _ = points_obs.shape
         device = points_obs.device
-        N_knn = 3
+        N_knn = 5
         
         # sample skinning weights from SMPL prior weights
         knn_ret = ops.knn_points(points_obs, dst_vertices, K=N_knn)
-        p_idx, p_dists = knn_ret.idx, knn_ret.dists
+        p_idx, p_squared_dists = knn_ret.idx, knn_ret.dists
         
-        w = p_dists.sum(-1, True) / (p_dists + 1e-8)
+        # point-wise weights based on distance
+        w = p_squared_dists.sum(-1, True) / (p_squared_dists + 1e-8)
         w = w / (w.sum(-1, True) + 1e-8)
+        
+        # point-wise decay factor
+        p_dists = p_squared_dists**0.5
         decay_factor = self.decay_from_dists(p_dists)
+        
         bv, _ = torch.meshgrid([torch.arange(batch_size).to(device), torch.arange(N_points).to(device)], indexing='ij')
         pts_W_sampled = 0.
         for i in range(N_knn):

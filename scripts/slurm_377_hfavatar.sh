@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=hf
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=70
+#SBATCH --cpus-per-task=60
 #SBATCH --mem=256G
 #SBATCH --partition=gpujl
-#SBATCH --gres=gpu:4
-#SBATCH --nodelist=node26
+#SBATCH --gres=gpu:2
+#SBATCH --nodelist=node27
 
 # show currrent status
 echo Start time is `date`
