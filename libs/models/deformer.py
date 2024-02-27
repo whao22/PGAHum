@@ -3,11 +3,6 @@ from torch import nn
 import numpy as np
 
 from libs.embeders.embedder_nerf import get_embedder
-from libs.utils.network_utils import MotionBasisComputer
-from libs.models.deconv_vol_decoder import MotionWeightVolumeDecoder
-from libs.models.nonrigid import NonRigidMotionMLP
-from libs.models.pose_refine import BodyPoseRefiner
-from libs.models.offset import Offset
 
 class Deformer(nn.Module):
     def __init__(self,
@@ -17,7 +12,7 @@ class Deformer(nn.Module):
                  n_layers,
                  skip_in=[4],
                  cond_in=[0],
-                 cond_dim=96,
+                 cond_dim=69,
                  multires=0,
                  bias=1.0,
                  geometric_init=True,

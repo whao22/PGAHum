@@ -45,15 +45,13 @@ class IDHRenderer:
             self.non_rigid_mlp = models['non_rigid_mlp']
         elif deform_mode == 1:
             self.skinning_model = models['skinning_model']
-        else:
-            raise NotImplementedError
         
         # NeRF for outside rendering
         if n_outside > 0:
-            self.nerf = models['nerf']
+            self.nerf_outside = models['nerf_outside']
         
         # SDF network
-        if sdf_mode == 0 or sdf_mode == 1:
+        if sdf_mode in [0, 1]:
             self.sdf_network = models['sdf_network']
         
         self.n_samples = n_samples
@@ -353,14 +351,13 @@ class IDHRenderer:
             z_vals_outside = torch.linspace(1e-3, 1.0 - 1.0 / (N_outside + 1.0), N_outside).to(near) # (N_outside, )
         
         if self.perturb > 0:
-            t_rand = torch.rand_like(z_vals) - 0.5
-            z_dists = torch.zeros_like(z_vals)
-            z_dists[..., :-1] = z_vals[..., 1:] - z_vals[..., :-1]
-            z_dists[..., -1:] = z_dists[..., :-1].mean(dim=-1, keepdim=True)
-            z_vals = z_vals + t_rand * z_dists # (N_rays, N_samples)
-            
-            # t_rand = (torch.rand([N_rays, 1]).to(near) - 0.5)
-            # z_vals = z_vals + t_rand * 2.0 / N_samples # (batch_size, n_samples)
+            # t_rand = torch.rand_like(z_vals) - 0.5
+            # z_dists = torch.zeros_like(z_vals)
+            # z_dists[..., :-1] = z_vals[..., 1:] - z_vals[..., :-1]
+            # z_dists[..., -1:] = z_dists[..., :-1].mean(dim=-1, keepdim=True)
+            # z_vals = z_vals + t_rand * z_dists # (N_rays, N_samples)
+            t_rand = (torch.rand([N_rays, 1]).to(near) - 0.5)
+            z_vals = z_vals + t_rand * 2.0 / N_samples # (batch_size, n_samples)
             
             if N_outside > 0:
                 mids = .5 * (z_vals_outside[..., 1:] + z_vals_outside[..., :-1])
@@ -476,11 +473,34 @@ class IDHRenderer:
             pts_W_pred = None
         elif self.deform_mode == 1:
             points_cnl, pts_W_pred = self.deform_points_skinning(points_obs, dst_gtfms, points_skl)
+            # points_cnl, pts_W_pred = self.deform_points_skinning_delta(points_obs, dst_gtfms, points_skl, pts_W_sampled)
         else:
             raise ValueError('Unknown deform_mode: {}'.format(self.deform_mode))
         
         return points_cnl.reshape(N_rays, N_samples, 3), pts_W_pred, pts_W_sampled
 
+    def deform_points_skinning_delta(self, 
+                                     points_obs: torch.Tensor, 
+                                     dst_gtfms: torch.Tensor, 
+                                     points_skl: torch.Tensor,
+                                     pts_weights: torch.Tensor):
+        """Deform the points in observation space into cononical space by querying the skinning 
+        weights from skinning model.
+
+        Args:
+            points_obs (torch.Tensor): _description_
+            dst_gtfms (torch.Tensor): _description_
+            points_skl (torch.Tensor): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        for i in range(self.N_iter_backward):
+            pts_W_pred = self.query_delta_weights(points_skl, pts_weights) # (1, N_points, 24)
+            # points_skl = self.backward_lbs(points_obs, dst_gtfms, pts_W_pred) # (1, N_points, 3)
+            points_skl = self.skinning_lbs_einsum(points_obs, dst_gtfms, pts_W_pred, inverse=True)
+        return points_skl, pts_W_pred
+    
     def deform_points_skinning(self, points_obs: torch.Tensor, dst_gtfms: torch.Tensor, points_skl: torch.Tensor):
         """Deform the points in observation space into cononical space by querying the skinning 
         weights from skinning model.
@@ -495,7 +515,8 @@ class IDHRenderer:
         """
         for i in range(self.N_iter_backward):
             pts_W_pred = self.query_weights(points_skl) # (1, N_points, 24)
-            points_skl = self.backward_lbs(points_obs, dst_gtfms, pts_W_pred) # (1, N_points, 3)
+            # points_skl = self.backward_lbs(points_obs, dst_gtfms, pts_W_pred) # (1, N_points, 3)
+            points_skl = self.skinning_lbs_einsum(points_obs, dst_gtfms, pts_W_pred, inverse=True)
         return points_skl, pts_W_pred
     
     def deform_points_non_rigid(self, points_skl: torch.Tensor, dst_posevec: torch.Tensor):
@@ -518,6 +539,31 @@ class IDHRenderer:
                                         condition_code = non_rigid_mlp_input)['xyz']
         return points_cnl
     
+    def query_delta_weights(self, points, pts_weights):
+        """Canonical point -> deformed point
+
+        Args:
+            points (_type_): (N, 3)
+
+        Raises:
+            ValueError: _description_
+
+        Returns:
+            _type_: _description_
+        """
+        soft_blend = 20 # soft blend factor from SNARF
+        wi = self.skinning_model(points, torch.empty(points.size(0), 0, device=points.device, dtype=torch.float32))
+        
+        if wi.size(-1) == 24:
+            wi = wi + pts_weights
+            w_ret = F.softmax(wi, dim=-1) # naive softmax
+        elif wi.size(-1) == 25:
+            w_ret = hierarchical_softmax(wi) # hierarchical softmax in SNARF
+        else:
+            raise ValueError('Wrong output size of skinning network. Expected 24 or 25, got {}.'.format(wi.size(-1)))
+
+        return w_ret
+    
     def query_weights(self, points):
         """Canonical point -> deformed point
 
@@ -530,13 +576,14 @@ class IDHRenderer:
         Returns:
             _type_: _description_
         """
-
-        wi = self.skinning_model(points, c=torch.empty(points.size(0), 0, device=points.device, dtype=torch.float32))
-
+        soft_blend = 20 # soft blend factor from SNARF
+        wi = self.skinning_model(points, torch.empty(points.size(0), 0, device=points.device, dtype=torch.float32))
+        wi = soft_blend * wi
+        
         if wi.size(-1) == 24:
             w_ret = F.softmax(wi, dim=-1) # naive softmax
         elif wi.size(-1) == 25:
-            w_ret = hierarchical_softmax(wi * 20) # hierarchical softmax in SNARF
+            w_ret = hierarchical_softmax(wi) # hierarchical softmax in SNARF
         else:
             raise ValueError('Wrong output size of skinning network. Expected 24 or 25, got {}.'.format(wi.size(-1)))
 
@@ -563,7 +610,7 @@ class IDHRenderer:
         
         return points_cnl
     
-    def backward_lbs_nn_einsum(self, x, w, tfs, inverse=False):
+    def skinning_lbs_einsum(self, x, tfs, w, inverse=False):
         ''' Backward skinning based on neural network predicted skinning weights 
         Args:
             x (tensor): canonical points. shape: [B, N, D]
@@ -577,16 +624,16 @@ class IDHRenderer:
 
         # p:n_point, n:n_bone, i,k: n_dim+1
         w_tf = torch.einsum("bpn,bnij->bpij", w, tfs)
-        w_tf_inv = torch.inverse(w_tf)
-        # w_tf_inv = FastDiff4x4MinvFunction.apply(w_tf.reshape(-1, 4, 4))[0].reshape_as(w_tf)
-
+        
         if inverse:
+            w_tf_inv = torch.inverse(w_tf)
+            # w_tf_inv = FastDiff4x4MinvFunction.apply(w_tf.reshape(-1, 4, 4))[0].reshape_as(w_tf)
             x_h = torch.einsum("bpij,bpj->bpi", w_tf_inv, x_h)
         else:
             # x_h = torch.einsum("bpn,bnij,bpj->bpi", w, tfs, x_h)
             x_h = torch.einsum("bpij,bpj->bpi", w_tf, x_h)
 
-        return x_h[:, :, :3], w_tf, w_tf_inv
+        return x_h[:, :, :3]
     
     def decay_from_dists(self, dists:torch.Tensor):
         """decay factor from distance
@@ -629,24 +676,24 @@ class IDHRenderer:
         """
         batch_size, N_points, _ = points_obs.shape
         device = points_obs.device
-        N_knn = 5
+        N_knn = 10
         
         # sample skinning weights from SMPL prior weights
         knn_ret = ops.knn_points(points_obs, dst_vertices, K=N_knn)
         p_idx, p_squared_dists = knn_ret.idx, knn_ret.dists
+        p_dists = p_squared_dists**0.5
         
         # point-wise weights based on distance
-        w = p_squared_dists.sum(-1, True) / (p_squared_dists + 1e-8)
+        w = p_dists.sum(-1, True) / (p_dists + 1e-8)
         w = w / (w.sum(-1, True) + 1e-8)
         
-        # point-wise decay factor
-        p_dists = p_squared_dists**0.5
-        decay_factor = self.decay_from_dists(p_dists)
-        
+        # # point-wise decay factor
+        # decay_factor = self.decay_from_dists(p_dists)
         bv, _ = torch.meshgrid([torch.arange(batch_size).to(device), torch.arange(N_points).to(device)], indexing='ij')
         pts_W_sampled = 0.
         for i in range(N_knn):
-            pts_W_sampled += skinning_weights[bv, p_idx[..., i], :] * w[..., i:i+1] * decay_factor[..., i:i+1]
+            # pts_W_sampled += skinning_weights[bv, p_idx[..., i], :] * w[..., i:i+1] * decay_factor[..., i:i+1]
+            pts_W_sampled += skinning_weights[bv, p_idx[..., i], :] * w[..., i:i+1]
 
         points_cnl = self.backward_lbs(points_obs, dst_gtfms, pts_W_sampled)
         

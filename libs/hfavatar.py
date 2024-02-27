@@ -60,53 +60,58 @@ class HFAvatar(pl.LightningModule):
                                  lpips = self.lpips)
         
         # Networks
-        self.models = {}
+        nets_to_train = {}
         self.pose_decoder = models['pose_decoder']
         self.motion_basis_computer = models['motion_basis_computer']
         self.deviation_network = models['deviation_network']
         self.color_network = models['color_network']
-        self.models.update({
+        nets_to_train.update({
             "pose_decoder": self.pose_decoder,
             "motion_basis_computer": self.motion_basis_computer,
             "deviation_network": self.deviation_network,
             "color_network": self.color_network,
         })
+        
         # Deformer
         if self.deform_mode == 0:
             self.offset_net = models['offset_net']
             self.non_rigid_mlp = models['non_rigid_mlp']
-            self.models.update({
+            nets_to_train.update({
                 "offset_net": self.offset_net,
                 "non_rigid_mlp": self.non_rigid_mlp,
             })
         elif self.deform_mode == 1:
             self.skinning_model = models['skinning_model']
-            self.models.update({
+            nets_to_train.update({
                 "skinning_model": self.skinning_model,
             })
-        else:
-            raise NotImplementedError
+        
         # NeRF for outside rendering
         if self.conf.model.neus_renderer.n_outside > 0:
-            self.nerf = models['nerf']
-            self.models.update({
-                "nerf": self.nerf,
+            self.nerf_outside = models['nerf_outside']
+            nets_to_train.update({
+                "nerf_outside": self.nerf_outside,
             })
+        
         # SDF network
         if self.sdf_mode == 0 or self.sdf_mode == 1:
             self.sdf_network = models['sdf_network']
-            self.models.update({
+            nets_to_train.update({
                 "sdf_network": self.sdf_network,
             })
         elif self.sdf_mode == 2:
+            self.latent = nn.Embedding(conf.dataset.N_frames, 128)
             self.sdf_decoder = models['sdf_decoder']
-        else:
-            raise NotImplementedError
+            nets_to_train.update({
+                'sdf_decoder_net': self.sdf_decoder.net.layers,
+                'sdf_decoder_pose_encoder': self.sdf_decoder.pose_encoder
+            })
+        
+        self.nets_to_train = nets_to_train
         
         # Renderer
-        self.latent = nn.Embedding(conf.dataset.N_frames, 128)
         self.renderer = IDHRenderer(conf = self.conf,
-                                    models = self.models,
+                                    models = self.nets_to_train,
                                     total_bones = self.total_bones,
                                     sdf_mode = self.sdf_mode,
                                     deform_mode = self.deform_mode,
@@ -122,7 +127,7 @@ class HFAvatar(pl.LightningModule):
         else:
             return np.min([1.0, self.global_step / self.anneal_end])
     
-    def get_sdf_decoder(self, inputs, idx, eval=False):     
+    def get_sdf_decoder(self, inputs, idx, eval=False):
         view_input_noise = self.conf.train.view_input_noise
         pose_input_noise = self.conf.train.pose_input_noise
         nv_noise_type = self.conf.train.nv_noise_type
@@ -169,7 +174,7 @@ class HFAvatar(pl.LightningModule):
                                           cos_anneal_ratio = self.get_cos_anneal_ratio(), 
                                           sdf_decoder = sdf_decoder if self.sdf_mode == 2 else None)
         loss_results = self.criteria(render_out,
-                                     batch, 
+                                     batch,
                                      sdf_params if self.sdf_mode == 2 else None)
         
         # loss
@@ -372,40 +377,12 @@ class HFAvatar(pl.LightningModule):
         self.log('lr', new_lr)
     
     def configure_optimizers(self):
-        nets_to_train = {}
-        nets_to_train.update({
-            'pose_decoder': self.pose_decoder,
-            'deviation_network': self.deviation_network,
-            'color_network': self.color_network
-        })
-        
-        if self.sdf_mode in [0, 1]:
-            nets_to_train.update({
-                'sdf_network': self.sdf_network
-            })
-        elif self.sdf_mode == 2:
-            self.models.update({
-                'sdf_decoder_net': self.sdf_decoder.net.layers,
-                'sdf_decoder_pose_encoder': self.sdf_decoder.pose_encoder
-            })
-        
-        if self.deform_mode == 1:
-            nets_to_train.update({
-                'skinning_model': self.skinning_model
-            })
-        
-        optimizer = self.get_optimizer_(self.models)
-        return optimizer
-    
-    def get_optimizer_(self, nets_to_train):
         params_to_train = []
-        for model in nets_to_train:
-            if model in ['sdf_decoder', 'motion_basis_computer']:
-                continue
-            
+        
+        for model in self.nets_to_train:    
             lr = self.conf.train.get_float(f'lr_{model}', 0)
             params_to_train += [{
-                "params": nets_to_train[model].parameters(),
+                "params": self.nets_to_train[model].parameters(),
                 "lr": lr if lr!= 0.0 else self.lr,
                 "name": model
             }]

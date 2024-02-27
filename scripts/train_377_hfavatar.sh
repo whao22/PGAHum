@@ -1,4 +1,4 @@
-user_comment='mono_winner_wdeltasdf'
+user_comment='mono_v000_tri-scale_knn'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_run_${user_comment}"
 base_exp_dir="exp/${run_name}"

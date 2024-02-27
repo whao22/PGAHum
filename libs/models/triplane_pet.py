@@ -146,7 +146,7 @@ class TriPlaneGenerator(torch.nn.Module):
         _, dim, N, nf = sampled_features.shape
 
         out = decoder(sampled_features, sample_coordinates, sample_directions)
-        # out = (torch.nn.functional.sigmoid(out) - 0.5) * 2 * 0.1
+        out = (torch.sigmoid(out) * 2 - 1) * 0.1
         return out
 
     def sdf(self, coordinates):

@@ -1,13 +1,12 @@
-# import libs.datasets as data
-from libs.datasets.zjumocap_v1 import ZJUMoCapDataset
-from libs.datasets.zjumocap_v2 import ZJUMoCapDataset
+import torch
+from collections import OrderedDict
+
 from libs.datasets.zjumocap_odp import ZJUMoCapDataset_ODP
 from libs.datasets.zjumocap_mvs import ZJUMoCapDataset_MVS
 from libs.hfavatar import HFAvatar
 from libs.models.siren_modules import HyperBVPNet
 from libs.models.deformer import Deformer
-import torch
-from collections import OrderedDict
+from libs.models.network import ImplicitNetwork
 
 from libs.embeders.hannw_fourier import get_embedder
 from libs.models.pose_refine import BodyPoseRefiner
@@ -45,6 +44,7 @@ def get_sdf_decoder(cfg, init_weights=True):
     return decoder
 
 def get_skinning_model(conf, init_weight=True):
+    # skinning_model = ImplicitNetwork(**conf['model.skinning_model'])
     skinning_model = Deformer(**conf['model.skinning_model'])
     
     # init skinning model

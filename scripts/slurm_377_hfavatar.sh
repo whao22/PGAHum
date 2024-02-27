@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=hf
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=60
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=70
 #SBATCH --mem=256G
 #SBATCH --partition=gpujl
 #SBATCH --gres=gpu:2
