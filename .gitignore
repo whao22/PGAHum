@@ -8,14 +8,17 @@ output
 build
 dist
 slurm_logs
+logs
 
 *so
 *pkl
 *egg-info
 *log
+
 *out
 *obj
 *zip
 *ply
 *pyc
 *txt
+*pth

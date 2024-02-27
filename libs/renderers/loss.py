@@ -64,6 +64,7 @@ class IDHRLoss(nn.Module):
         bg_color = target['background_color'][0]
         div_indices = target['patch_div_indices'][0]
         patch_masks = target['patch_masks'][0]
+        inter_mask = target['hit_mask'][0]
         target_patches = target['target_patches'][0]
         N_patch = len(div_indices) - 1
         pre_color = predicted['color']
@@ -71,10 +72,16 @@ class IDHRLoss(nn.Module):
         assert patch_masks.shape[0] == N_patch
         assert target_patches.shape[0] == N_patch
 
+        # for i in range(N_patch):
+        #     mask = torch.bitwise_and(patch_masks[i].bool(), patch_masks[i].bool()) 
+        #     patch_imgs[i, mask] = pre_color[div_indices[i]:div_indices[i+1]]
+        
         patch_imgs = bg_color.expand(target_patches.shape).clone() # (N_patch, H, W, 3)
+        inter_mask_ext = torch.zeros_like(target_patches)[..., 0].bool()
         for i in range(N_patch):
-            patch_imgs[i, patch_masks[i].bool()] = pre_color[div_indices[i]:div_indices[i+1]]
-
+            inter_mask_ext[i, patch_masks[i].bool()] = inter_mask[div_indices[i]:div_indices[i+1]]
+        patch_imgs[inter_mask_ext] = pre_color
+        
         return patch_imgs, target_patches
     
     def get_perceptual_loss(self, color_pre, color_gt):

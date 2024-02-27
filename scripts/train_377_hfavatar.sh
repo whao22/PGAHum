@@ -1,4 +1,4 @@
-user_comment='mono_v000_tri-scale_knn'
+user_comment='mono_v007_tri-scale0.1_nn_intermask'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_run_${user_comment}"
 base_exp_dir="exp/${run_name}"

@@ -5,8 +5,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
 #SBATCH --partition=gpujl
-#SBATCH --gres=gpu:1
-
+#SBATCH --gres=gpu:4
+#SBATCH --output=output.txt
 
 # show currrent status
 echo Start time is `date`

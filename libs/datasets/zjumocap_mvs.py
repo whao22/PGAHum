@@ -40,7 +40,8 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
                  N_samples=64,
                  inner_sampling=False,
                  res_level=4,
-                 use_dilated=False):
+                 use_dilated=False,
+                 use_inter_mask=False):
         assert len(subjects) == 1, 'SINGLE PERSON! Please make sure the length of subjects list is one.'
         
         # meta data
@@ -53,6 +54,7 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
         self.N_samples = N_samples
         self.volume_size = 64
         self.inner_sampling = inner_sampling
+        self.use_inter_mask = use_inter_mask
         self.res_level = res_level
         self.bgcolor = np.array(backgroung_color, dtype=np.float32) if backgroung_color is not None else (np.random.rand(3) * 255).astype(np.float32)
         self.ray_shoot_mode = ray_shoot_mode
@@ -317,7 +319,12 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
                 z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dilated_vertices, dilated_triangles)
             else:
                 z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
-            results['z_vals'] = z_vals.astype(np.float32)
+            
+            if self.use_inter_mask:
+                results['z_vals'] = z_vals[inter_mask].astype(np.float32)
+                results['batch_rays'] = batch_rays[inter_mask].astype(np.float32)
+            else:
+                results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = inter_mask
         return results
     
@@ -441,9 +448,13 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
                 z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dilated_vertices, dilated_triangles)
             else:
                 z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
-            results['z_vals'] = z_vals.astype(np.float32)
-            results['hit_mask'] = inter_mask
             
+            if self.use_inter_mask:
+                results['z_vals'] = z_vals[inter_mask].astype(np.float32)
+                results['batch_rays'] = batch_rays[inter_mask].astype(np.float32)
+            else:
+                results['z_vals'] = z_vals.astype(np.float32)
+            results['hit_mask'] = inter_mask
         return results
     
     def __len__(self):

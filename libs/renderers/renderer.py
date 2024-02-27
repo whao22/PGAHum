@@ -576,7 +576,7 @@ class IDHRenderer:
         Returns:
             _type_: _description_
         """
-        soft_blend = 20 # soft blend factor from SNARF
+        soft_blend = 24 # soft blend factor from SNARF
         wi = self.skinning_model(points, torch.empty(points.size(0), 0, device=points.device, dtype=torch.float32))
         wi = soft_blend * wi
         

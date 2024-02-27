@@ -121,12 +121,6 @@ class HFAvatar(pl.LightningModule):
                                     N_iter_backward = conf.model.N_iter_backward,
                                     **self.conf.model.neus_renderer)
     
-    def get_cos_anneal_ratio(self):
-        if self.anneal_end == 0.0:
-            return 1.0
-        else:
-            return np.min([1.0, self.global_step / self.anneal_end])
-    
     def get_sdf_decoder(self, inputs, idx, eval=False):
         view_input_noise = self.conf.train.view_input_noise
         pose_input_noise = self.conf.train.pose_input_noise
@@ -190,24 +184,21 @@ class HFAvatar(pl.LightningModule):
         
         return loss_results['loss']
     
-    def on_before_optimizer_step(self, optimizer: Optimizer, optimizer_idx: int) -> None:
-        self.update_learning_rate(optimizer)
-    
     def test_step(self, data, idx):
         if self.sdf_mode == 2:
             sdf_decoder, sdf_params = self.get_sdf_decoder(data, idx)
         
         with torch.enable_grad():
-            n_batches = int(data['batch_rays'].size(1) / self.N_rays)
             out_rgb_fine = []
             out_normal_fine = []
 
-            for i in range(n_batches):
+            batch_rays_list = torch.split(data['batch_rays'], self.N_rays, dim=1)
+            z_vals_list = torch.split(data['z_vals'], self.N_rays, dim=1)
+            for batch_rays, z_vals in zip(batch_rays_list, z_vals_list):
                 data_batch = data.copy()
-                data_batch['batch_rays'] = data_batch['batch_rays'][:, i*self.N_rays:(i+1)*self.N_rays]
+                data_batch['batch_rays'] = batch_rays
                 if self.inner_sampling:
-                    data_batch['z_vals'] = data_batch['z_vals'][:, i*self.N_rays:(i+1)*self.N_rays]
-                    data_batch['hit_mask'] = data_batch['hit_mask'][:, i*self.N_rays:(i+1)*self.N_rays]
+                    data_batch['z_vals'] = z_vals
                 
                 render_out = self.renderer.render(data_batch, 
                                                   self.global_step, 
@@ -215,42 +206,41 @@ class HFAvatar(pl.LightningModule):
                                                   sdf_decoder = sdf_decoder if self.sdf_mode == 2 else None)
 
                 if feasible('color', render_out):
-                    out_rgb_fine.append(render_out['color'].detach().cpu().numpy())
+                    out_rgb_fine.append(render_out['color'])
                 if feasible('gradients', render_out) and feasible('weights', render_out):
                     n_samples = self.renderer.n_samples + self.renderer.n_importance
                     normals = render_out['gradients'] * render_out['weights'][:, :n_samples, None]
                     if feasible('inside_sphere', render_out):
                         normals = normals * render_out['inside_sphere'][..., None]
-                    normals = normals.sum(dim=1).detach().cpu().numpy()
+                    normals = normals.sum(dim=1)
                     # normals = (normals.sum(dim=1)**2).sum(dim=1,keepdim=True).sqrt().tile(1,3).detach().cpu().numpy()
                     out_normal_fine.append(normals)
-                torch.cuda.empty_cache()
+                
                 del render_out
                 del data_batch
+                torch.cuda.empty_cache()
 
-            img_fine = None
             H, W, E = data['height'].squeeze(), data['width'].squeeze(), data['extrinsic'].squeeze()
+            bg_color = data['background_color'].squeeze()
+            inter_mask = data['hit_mask'].squeeze().reshape(H, W)
             
+            image_pred = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_rgb_fine) > 0:
-                img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3, -1]) * 256).clip(0, 255)
+                img_fine = torch.cat(out_rgb_fine, dim=0)
+                image_pred[inter_mask] = img_fine
+                image_pred = (image_pred * 256).clip(0, 255)
 
-            normal_img = None
+            normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_normal_fine) > 0:
-                normal_img = np.concatenate(out_normal_fine, axis=0)
-                rot = np.linalg.inv(E[:3,:3].detach().cpu().numpy())
-                normal_img = (np.matmul(rot[None, :, :], normal_img[:, :, None])
-                            .reshape([H, W, 3, -1]) * 128 + 128).clip(0, 255)
+                normal_img = torch.cat(out_normal_fine, dim=0)
+                normal_image[inter_mask] = normal_img
+                rot = torch.inverse(E[:3,:3])
+                normal_image = (torch.matmul(rot[None, ...], normal_image[..., None])[..., 0] * 128 + 128).clip(0, 255)
 
-            for i in range(img_fine.shape[-1]):
-                if len(out_rgb_fine) > 0:
-                    pred_image = img_fine[..., i]
-                    
-                if len(out_normal_fine) > 0:
-                    mormal_map = normal_img[..., i]
-            
             # log
             self.logger.log_image(key="test_samples",
-                    images=[pred_image, mormal_map],
+                    images=[image_pred.detach().cpu().numpy(),
+                            normal_image.detach().cpu().numpy()],
                     caption=["pred image", "normal map"]
             )
     
@@ -259,17 +249,17 @@ class HFAvatar(pl.LightningModule):
             sdf_decoder, sdf_params = self.get_sdf_decoder(data, idx)
         
         with torch.enable_grad():
-            n_batches = int(data['batch_rays'].size(1) / self.N_rays)
             out_rgb_fine = []
             out_normal_fine = []
             metrics_dict = {}
-
-            for i in range(n_batches):
+            
+            batch_rays_list = torch.split(data['batch_rays'], self.N_rays, dim=1)
+            z_vals_list = torch.split(data['z_vals'], self.N_rays, dim=1)
+            for batch_rays, z_vals in zip(batch_rays_list, z_vals_list):
                 data_batch = data.copy()
-                data_batch['batch_rays'] = data_batch['batch_rays'][:, i*self.N_rays:(i+1)*self.N_rays]
+                data_batch['batch_rays'] = batch_rays
                 if self.inner_sampling:
-                    data_batch['z_vals'] = data_batch['z_vals'][:, i*self.N_rays:(i+1)*self.N_rays]
-                    data_batch['hit_mask'] = data_batch['hit_mask'][:, i*self.N_rays:(i+1)*self.N_rays]
+                    data_batch['z_vals'] = z_vals
                 
                 render_out = self.renderer.render(data_batch, 
                                                   self.global_step, 
@@ -277,63 +267,67 @@ class HFAvatar(pl.LightningModule):
                                                   sdf_decoder = sdf_decoder if self.sdf_mode == 2 else None)
 
                 if feasible('color', render_out):
-                    out_rgb_fine.append(render_out['color'].detach().cpu().numpy())
+                    out_rgb_fine.append(render_out['color'])
                 if feasible('gradients', render_out) and feasible('weights', render_out):
                     n_samples = self.renderer.n_samples + self.renderer.n_importance
                     normals = render_out['gradients'] * render_out['weights'][:, :n_samples, None]
                     if feasible('inside_sphere', render_out):
                         normals = normals * render_out['inside_sphere'][..., None]
-                    normals = normals.sum(dim=1).detach().cpu().numpy()
+                    normals = normals.sum(dim=1)
                     # normals = (normals.sum(dim=1)**2).sum(dim=1,keepdim=True).sqrt().tile(1,3).detach().cpu().numpy()
                     out_normal_fine.append(normals)
-                torch.cuda.empty_cache()
+                
                 del render_out
                 del data_batch
-        
-        with torch.no_grad():
+                torch.cuda.empty_cache()
+            
             img_fine = None
             normal_img = None
             H, W, E = data['height'].squeeze(), data['width'].squeeze(), data['extrinsic'].squeeze()
-            img_true = data['batch_rays'][..., 6:9].reshape(H,W,3).squeeze()
+            bg_color = data['background_color'].squeeze()
+            inter_mask = data['hit_mask'].squeeze().reshape(H, W)
             
+            image_targ = torch.tile(bg_color[None, None, :], (H, W, 1))
+            img_true = data['batch_rays'][..., 6:9].squeeze()
+            image_targ[inter_mask] = img_true
+            image_targ = image_targ * 255
+            
+            image_pred = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_rgb_fine) > 0:
-                img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3, -1]) * 256).clip(0, 255)
+                img_fine = torch.cat(out_rgb_fine, dim=0)
+                image_pred[inter_mask] = img_fine
+                image_pred = (image_pred * 256).clip(0, 255)
+                
                 if self.resolution_level == 1:
                     bbox_mask = data['bbox_mask'].squeeze().detach().cpu().numpy() # (H, W), ndarray
                     x, y, w, h = cv2.boundingRect(bbox_mask.astype(np.uint8))
                     
-                    color_pred = torch.from_numpy(np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3])).to(img_true) # (H, W, 3), ndarray
-                    color_trgt = img_true.clone() # (H, W, 3), ndarray
-                    color_pred = color_pred[y:y+h, x:x+w]
-                    color_trgt = color_trgt[y:y+h, x:x+w]
+                    image_pred = image_pred[y:y+h, x:x+w]
+                    image_targ = image_targ[y:y+h, x:x+w]
                     
-                    mse = F.mse_loss(color_pred, color_trgt).item()
+                    mse = F.mse_loss(image_pred, image_targ).item()
                     psnr = mse2psnr(mse)
-                    ssim = pytorch_ssim.ssim(color_pred.permute(2, 0, 1).unsqueeze(0), color_trgt.permute(2, 0, 1).unsqueeze(0)).item()
-                    lpips = self.lpips(color_pred.permute(2, 0, 1).unsqueeze(0), color_trgt.permute(2, 0, 1).unsqueeze(0)).item()
+                    ssim = pytorch_ssim.ssim(image_pred.permute(2, 0, 1).unsqueeze(0), image_targ.permute(2, 0, 1).unsqueeze(0)).item()
+                    lpips = self.lpips(image_pred.permute(2, 0, 1).unsqueeze(0), image_targ.permute(2, 0, 1).unsqueeze(0)).item()
+                    
                     metrics_dict.update({
                         'psnr': psnr,
                         'ssim': ssim,
                         'lpips': lpips
                     })
 
+            normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_normal_fine) > 0:
-                normal_img = np.concatenate(out_normal_fine, axis=0)
-                rot = np.linalg.inv(E[:3,:3].detach().cpu().numpy())
-                normal_img = (np.matmul(rot[None, :, :], normal_img[:, :, None])
-                            .reshape([H, W, 3, -1]) * 128 + 128).clip(0, 255)
-            
-            for i in range(img_fine.shape[-1]):
-                if len(out_rgb_fine) > 0:
-                    pred_image = img_fine[..., i]
-                    gt_image = img_true.detach().cpu().numpy()*255
-                    
-                if len(out_normal_fine) > 0:
-                    mormal_map = normal_img[..., i]
+                normal_img = torch.cat(out_normal_fine, dim=0)
+                normal_image[inter_mask] = normal_img
+                rot = torch.inverse(E[:3,:3])
+                normal_image = (torch.matmul(rot[None, ...], normal_image[..., None])[..., 0] * 128 + 128).clip(0, 255)
             
             # log
             self.logger.log_image(key="validation_samples",
-                    images=[pred_image, gt_image, mormal_map],
+                    images=[image_pred.detach().cpu().numpy(), 
+                            image_targ.detach().cpu().numpy(), 
+                            normal_image.detach().cpu().numpy()],
                     caption=["pred image", 'GT image',"normal map"]
             )
         
@@ -351,17 +345,21 @@ class HFAvatar(pl.LightningModule):
         return psnr, ssim, lpips
     
     def validation_epoch_end(self, validation_step_outputs):
-        psnr, ssim, lpips = self._process_validation_epoch_outputs(validation_step_outputs)
+        if self.resolution_level == 1:
+            psnr, ssim, lpips = self._process_validation_epoch_outputs(validation_step_outputs)
 
-        if len(psnr) >= 1:
-            psnr = np.array(psnr).mean()
-            ssim = np.array(ssim).mean()
-            lpips = np.array(lpips).mean()
-            
-            self.log('PSNR', psnr)
-            self.log('SSIM', ssim)
-            self.log('LPIPS', lpips)
+            if len(psnr) >= 1:
+                psnr = np.array(psnr).mean()
+                ssim = np.array(ssim).mean()
+                lpips = np.array(lpips).mean()
+                
+                self.log('PSNR', psnr)
+                self.log('SSIM', ssim)
+                self.log('LPIPS', lpips)
     
+    def on_before_optimizer_step(self, optimizer: Optimizer, optimizer_idx: int) -> None:
+        self.update_learning_rate(optimizer)
+        
     def update_learning_rate(self, optimizer):
         decay_rate = 0.1
         decay_steps = self.warm_up_end * 1000
@@ -389,3 +387,9 @@ class HFAvatar(pl.LightningModule):
         
         optimizer = torch.optim.Adam(params_to_train, lr=self.lr, betas=(0.9, 0.999))
         return optimizer
+    
+    def get_cos_anneal_ratio(self):
+        if self.anneal_end == 0.0:
+            return 1.0
+        else:
+            return np.min([1.0, self.global_step / self.anneal_end])

@@ -176,6 +176,7 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
     inner_sampling = cfg.dataset.inner_sampling
     res_level = cfg.dataset.res_level
     use_dilated = cfg.dataset.use_dilated
+    use_inter_mask = cfg.dataset.use_inter_mask
     
     splits = {
         'train': cfg.dataset.train_split,
@@ -236,6 +237,7 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
             inner_sampling=inner_sampling,
             res_level=res_level,
             use_dilated=use_dilated,
+            use_inter_mask=use_inter_mask,
         )
     elif dataset_type == 'zju_mocap_odp':
         new_pose_mode = cfg.dataset.new_pose_mode
@@ -257,5 +259,7 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
             N_samples=N_samples,
             inner_sampling=inner_sampling,
             res_level=res_level,
+            use_dilated=use_dilated,
+            use_inter_mask=use_inter_mask,
         )
     return dataset

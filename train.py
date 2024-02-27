@@ -50,7 +50,7 @@ if __name__ == '__main__':
         batch_size=conf.train.batch_size,
         num_workers=conf.train.num_workers,
         shuffle=False)
-    # for i in val_dloader:
+    # for i in train_dloader:
     #     print(i)
     
     # Model
@@ -114,6 +114,6 @@ if __name__ == '__main__':
                         accelerator='gpu',
                         strategy='ddp' if len(conf.train.gpus) > 1 else None,
                         devices=conf.train.gpus,
-                        num_sanity_val_steps=1)
+                        num_sanity_val_steps=0)
     
     trainer.fit(model=model, train_dataloaders=train_dloader, val_dataloaders=val_dloader, ckpt_path=checkpoint_path)
