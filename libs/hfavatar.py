@@ -57,7 +57,8 @@ class HFAvatar(pl.LightningModule):
         set_requires_grad(self.lpips, requires_grad=False)
         self.criteria = IDHRLoss(**conf['train.weights'],
                                  rgb_loss_type=conf.train.rgb_loss_type,
-                                 lpips = self.lpips)
+                                 lpips = self.lpips,
+                                 weight_decay_end = conf.train.weight_decay_end,)
         
         # Networks
         nets_to_train = {}
@@ -169,6 +170,7 @@ class HFAvatar(pl.LightningModule):
                                           sdf_decoder = sdf_decoder if self.sdf_mode == 2 else None)
         loss_results = self.criteria(render_out,
                                      batch,
+                                     self.global_step,
                                      sdf_params if self.sdf_mode == 2 else None)
         
         # loss
@@ -176,6 +178,8 @@ class HFAvatar(pl.LightningModule):
         self.log('loss_mask', loss_results['loss_mask'])
         self.log('loss_eikonal', loss_results['loss_eikonal'])
         self.log('loss_pips', loss_results['loss_pips'])
+        self.log('loss_mse', loss_results['loss_mse'])
+        self.log('loss_nssim', loss_results['loss_nssim'])
         self.log('loss_skinning_weights', loss_results['loss_skinning_weights'])
         self.log('loss_params', loss_results['loss_params'])
         self.log('loss_pose_refine', loss_results['loss_pose_refine'])
@@ -191,7 +195,6 @@ class HFAvatar(pl.LightningModule):
         with torch.enable_grad():
             out_rgb_fine = []
             out_normal_fine = []
-            metrics_dict = {}
             
             batch_rays_list = torch.split(data['batch_rays'], self.N_rays, dim=1)
             z_vals_list = torch.split(data['z_vals'], self.N_rays, dim=1)
@@ -217,37 +220,36 @@ class HFAvatar(pl.LightningModule):
                     if feasible('inside_sphere', render_out):
                         normals = normals * render_out['inside_sphere'][..., None]
                     normals = normals.sum(dim=1).detach()
-                    # normals = (normals.sum(dim=1)**2).sum(dim=1,keepdim=True).sqrt().tile(1,3).detach().cpu().numpy()
                     out_normal_fine.append(normals)
                     
                 torch.cuda.empty_cache()
                 del render_out
                 del data_batch
             
-            with torch.no_grad():
-                H, W, E = data['height'].squeeze(), data['width'].squeeze(), data['extrinsic'].squeeze()
-                bg_color = data['background_color'].squeeze()
-                inter_mask = data['hit_mask'].squeeze().reshape(H, W)
-                
-                image_pred = torch.tile(bg_color[None, None, :], (H, W, 1))
-                if len(out_rgb_fine) > 0:
-                    img_fine = torch.cat(out_rgb_fine, dim=0)
-                    image_pred[inter_mask] = img_fine[inter_mask.reshape(-1)]
-                    image_pred = (image_pred * 256).clip(0, 255)
+        with torch.no_grad():
+            H, W, E = data['height'].squeeze(), data['width'].squeeze(), data['extrinsic'].squeeze()
+            bg_color = data['background_color'].squeeze()
+            inter_mask = data['hit_mask'].squeeze().reshape(H, W)
+            
+            image_pred = torch.tile(bg_color[None, None, :], (H, W, 1))
+            if len(out_rgb_fine) > 0:
+                img_fine = torch.cat(out_rgb_fine, dim=0)
+                image_pred[inter_mask] = img_fine[inter_mask.reshape(-1)]
+                image_pred = (image_pred * 256).clip(0, 255)
 
-                normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
-                if len(out_normal_fine) > 0:
-                    normal_img = torch.cat(out_normal_fine, dim=0)
-                    normal_image[inter_mask] = normal_img[inter_mask.reshape(-1)]
-                    rot = torch.inverse(E[:3,:3])
-                    normal_image = (torch.matmul(rot[None, ...], normal_image[..., None])[..., 0] * 128 + 128).clip(0, 255)
+            normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
+            if len(out_normal_fine) > 0:
+                normal_img = torch.cat(out_normal_fine, dim=0)
+                normal_image[inter_mask] = normal_img[inter_mask.reshape(-1)]
+                rot = torch.inverse(E[:3,:3])
+                normal_image = (torch.matmul(rot[None, ...], normal_image[..., None])[..., 0] * 128 + 128).clip(0, 255)
 
-                # log
-                self.logger.log_image(key="test_samples",
-                        images=[image_pred.detach().cpu().numpy(),
-                                normal_image.detach().cpu().numpy()],
-                        caption=["pred image", "normal map"]
-                )
+            # log
+            self.logger.log_image(key="test_samples",
+                    images=[image_pred.detach().cpu().numpy(),
+                            normal_image.detach().cpu().numpy()],
+                    caption=["pred image", "normal map"]
+            )
     
     def validation_step(self, data, idx):
         if self.sdf_mode == 'hyper_net':

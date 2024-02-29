@@ -2,7 +2,7 @@ import torch
 import lpips
 from torch import nn
 from torch.nn import functional as F
-
+from libs.utils.metrics import pytorch_ssim
 
 
 class IDHRLoss(nn.Module):
@@ -10,14 +10,18 @@ class IDHRLoss(nn.Module):
 
     def __init__(self, 
                  rgb_weight=0., 
-                 perceptual_weight=0., 
+                 perceptual_weight=0.,
+                 mse_weight=0.,
+                 nssim_weight=0.,
                  eikonal_weight=0., 
                  mask_weight=0., 
                  skinning_weight=0.,
                  params_weight=0.,
                  pose_refine_weight=0.,
                  rgb_loss_type='l1',
-                 lpips = None):
+                 lpips = None,
+                 weight_decay_end=1e10,
+                 **kwargs):
         """initialize loss class for loss computing. 
 
         Args:
@@ -35,11 +39,14 @@ class IDHRLoss(nn.Module):
         super().__init__()
         self.rgb_weight = rgb_weight
         self.perceptual_weight = perceptual_weight
+        self.mse_weight = mse_weight
+        self.nssim_weight = nssim_weight
         self.eikonal_weight = eikonal_weight
         self.mask_weight = mask_weight
         self.skinning_weight = skinning_weight
         self.params_weight = params_weight
         self.pose_refine_weight = pose_refine_weight
+        self.weight_decay_end = weight_decay_end
         
         if rgb_loss_type == 'l1':
             self.l1_loss = nn.L1Loss(reduction='mean')
@@ -89,6 +96,14 @@ class IDHRLoss(nn.Module):
         gt_patch = self.scale_for_lpips(color_gt.permute(0, 3, 1, 2))
         perceptual_loss = self.p_loss(pred_patch, gt_patch).mean()
         return perceptual_loss
+    
+    def get_mse_loss(self, color_pre, color_gt):
+        mse_loss = F.mse_loss(color_pre, color_gt, reduction='mean')
+        return mse_loss
+    
+    def get_nssim_loss(self, color_pre, color_gt):
+        nssim_loss = 1 - pytorch_ssim.ssim(color_pre, color_gt)
+        return nssim_loss
 
     def get_skinning_weights_loss(self, pts_w_pre, pts_w_gt):
         return torch.abs(pts_w_pre - pts_w_gt).sum(-1).mean()
@@ -102,7 +117,12 @@ class IDHRLoss(nn.Module):
 
         return sdf_params.norm(dim=-1).mean() / n_params
 
-    def forward(self, model_outputs, ground_truth, sdf_params):
+    def weight_decay_factor(self, iter_step):
+        return max(1 - iter_step / self.weight_decay_end, 0)
+        
+    def forward(self, model_outputs, ground_truth, iter_step, sdf_params=None):
+        skinning_weight = self.skinning_weight * self.weight_decay_factor(iter_step)
+        
         if self.perceptual_weight > 0 :
             color_pre, color_gt = self.unpack_image(model_outputs, ground_truth)
         else:
@@ -128,6 +148,16 @@ class IDHRLoss(nn.Module):
             loss_pips = self.get_perceptual_loss(color_pre, color_gt)
         else:
             loss_pips = torch.zeros(1, device=device)
+        
+        if self.mse_weight > 0:
+            loss_mse = self.get_mse_loss(color_pre, color_gt)
+        else:
+            loss_mse = torch.zeros(1, device=device)
+        
+        if self.nssim_weight > 0:
+            loss_nssim = self.get_nssim_loss(color_pre, color_gt)
+        else:
+            loss_nssim = torch.zeros(1, device=device)
         
         if self.skinning_weight > 0 and pts_w_pre is not None:
             loss_skinning_weights = self.get_skinning_weights_loss(pts_w_pre, pts_w_gt)
@@ -157,18 +187,23 @@ class IDHRLoss(nn.Module):
         # get the final loss
         loss_color = loss_color * self.rgb_weight 
         loss_pips = loss_pips * self.perceptual_weight
-        loss_skinning_weights = loss_skinning_weights * self.skinning_weight
+        loss_mse = loss_mse * self.mse_weight
+        loss_nssim = loss_nssim * self.nssim_weight
+        loss_skinning_weights = loss_skinning_weights * skinning_weight
         loss_eikonal = loss_eikonal * self.eikonal_weight
         loss_mask = loss_mask * self.mask_weight
         loss_params = loss_params * self.params_weight
         loss_pose_refine = loss_pose_refine * self.pose_refine_weight
         
-        loss = loss_color + loss_pips + loss_skinning_weights + loss_eikonal + loss_mask + loss_params + loss_pose_refine
+        loss = loss_color + loss_pips + loss_mse + loss_nssim + loss_skinning_weights + \
+            loss_eikonal + loss_mask + loss_params + loss_pose_refine
         
         loss_results = {
             "loss": loss,
             "loss_color": loss_color,
             "loss_pips": loss_pips,
+            "loss_mse": loss_mse,
+            "loss_nssim": loss_nssim,
             "loss_skinning_weights": loss_skinning_weights,
             "loss_eikonal": loss_eikonal,
             "loss_mask": loss_mask,
