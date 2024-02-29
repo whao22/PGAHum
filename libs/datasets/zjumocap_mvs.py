@@ -8,7 +8,7 @@ import torch
 import torch.utils.data
 import trimesh
 
-from libs.utils.general_utils import rays_mesh_intersections_pcu, get_02v_bone_transforms
+from libs.utils.general_utils import rays_mesh_intersections_pcu, get_02v_bone_transforms, get_z_vals
 from libs.utils.images_utils import load_image
 from libs.utils.body_utils import \
     body_pose_to_body_RTs, \
@@ -316,9 +316,9 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
             if self.use_dilated:
                 dilated_vertices = dst_skel_info['dilated_vertices']
                 dilated_triangles = dst_skel_info['dilated_triangles']
-                z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dilated_vertices, dilated_triangles)
+                z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dilated_vertices, dilated_triangles, self.N_samples)
             else:
-                z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
+                z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces, self.N_samples)
             
             if self.use_inter_mask:
                 results['z_vals'] = z_vals[inter_mask].astype(np.float32)
@@ -445,9 +445,9 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
             if self.use_dilated:
                 dilated_vertices = dst_skel_info['dilated_vertices']
                 dilated_triangles = dst_skel_info['dilated_triangles']
-                z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dilated_vertices, dilated_triangles)
+                z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dilated_vertices, dilated_triangles, self.N_samples)
             else:
-                z_vals, inter_mask = self.get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces)
+                z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces, self.N_samples)
             
             if self.use_inter_mask:
                 results['z_vals'] = z_vals[inter_mask].astype(np.float32)
@@ -481,140 +481,6 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
         sampled_far[hit_mask] = distances_far
         
         return sampled_near, sampled_far, hit_mask
-    
-    def get_z_vals(self, near, far, rays_o, rays_d, vertices, faces):
-        """Get z-depth w.r.t. z_vals for sampling points.
-
-        Args:
-            near (ndarray): (N_rays, 1)
-            far (ndarray): (N_rays, 1)
-            rays_o (ndarray): (N_rays, 3), the start points of rays
-            rays_d (ndarray): (N_rays, 3), the direction of rays
-            vertices (ndarray): (N_vertices, 3)
-            faces (ndarray): (N_faces, 3)
-
-        Returns:
-            z_vals (ndarray): (N_rays, N_samples), z_vals for depth of sampling points in rays
-            inter_mask (ndarray): (N_rays,), mask with any intersection, 
-        """
-        ALPHA = 0.008 * 0.5 # 0.008 is determined by calculating the mean length of all edge
-        rays_o = rays_o + rays_d * near
-        num_intersections = np.zeros_like(rays_o[..., :1], dtype=np.int8) # the number of intersections between rays and mesh, where the start points is the rays_o 
-        dist_lst = [near] # maintain distances of current rays_o and current intersection.
-        hit_mask = near < np.inf
-        mask_lst = [hit_mask]
-        
-        # ray mesh intersections computing
-        n_iter = 0
-        while np.any(hit_mask):
-            hit_mask, _, hit_points, cur_dists = \
-                rays_mesh_intersections_pcu(rays_o=rays_o, rays_d=rays_d, vertices=vertices, faces=faces)
-            
-            num_intersections[hit_mask] = num_intersections[hit_mask] + 1
-            rays_o = rays_o + rays_d * (cur_dists[..., None] + ALPHA)
-            if n_iter == 0:
-                dist_lst.append(cur_dists[..., None])
-            else:
-                dist_lst.append(cur_dists[..., None] + ALPHA)
-            mask_lst.append(hit_mask[..., None])
-            n_iter += 1
-        
-        # for an interval of intersection, calculate a mask.
-        masks = np.concatenate(mask_lst, axis=-1)
-        hit_masks = masks[:, 1:-1]                                              # first column all True, last column all False, so drop them.
-        if hit_masks.size == 0 or hit_masks.shape[-1] == 1:
-            hit_masks = masks[:, :1]
-        else:
-            hit_masks = hit_masks[:, :hit_masks.shape[-1]//2*2]
-            hit_masks[:, 0::2] = hit_masks[:, 0::2] & hit_masks[:, 1::2]
-            hit_masks[:, 1::2] = hit_masks[:, 0::2]                             # (N_rays, N_interval * 2)
-            
-        # calculate the distance of intersections and camera location
-        dists = np.concatenate(dist_lst, axis=-1)
-        hit_dists = dists[:, 1:-1]
-        if hit_dists.size == 0 or hit_dists.shape[-1] == 1:
-            hit_dists = dists[:, :1]                                            # if donot intersect with mesh, assign the dist_intersections to near
-        else:
-            hit_dists = hit_dists[:, :hit_dists.shape[-1]//2*2]
-            hit_dists[hit_dists==np.inf] = 0
-            hit_dists = hit_dists * hit_masks                                   # make hit_dists and hit_masks keep identity
-            hit_dists = np.cumsum(hit_dists, axis=-1)
-            hit_dists = hit_dists + dists[:, :1]                                # (N_rays, N_interval * 2)
-        
-        z_vals, inter_mask = self.calculate_inner_smpl_depth(near, far, hit_masks, hit_dists)
-        return z_vals, inter_mask
-    
-    def calculate_inner_smpl_depth(self, near, far, hit_masks, hit_dists):
-        """Calculate sampling depth in rays given the hit masks and hit distances.
-
-        Args:
-            near (ndarray): (N_rays, 1).
-            far (ndarray): (N_rays, 1).
-            hit_masks (ndarray): (N_rays, N_intervals * 2), each column represents the hit mask of rays and mesh, 
-                                N_intervals denotes the number interval of rays and mesh.
-            hit_dists (ndarray): (N_rays, N_intervals * 2), each column represents the hit distance between camera 
-                                location and intersection.
-
-        Returns:
-            z_vals (ndarray): (N_rays, N_samples), z_vals for depth of sampling points in rays
-            inter_mask (ndarray): (N_rays,), mask with any intersection, 
-        """
-        N_rays = len(near)
-        N_samples = self.N_samples
-        N_interval = hit_masks.shape[-1] // 2
-        inter_mask = hit_masks.sum(-1) > 0 # ndarray (N_rays,), mask with any intersection, 
-        
-        # if N_interval equal with 0, it means no intersection of rays and mesh, 
-        # so return the uniform sampling in [near, far].
-        if N_interval == 0:
-            t = np.linspace(0, 1, N_samples)
-            z_vals = near + (far - near) * t[None, :]
-            return z_vals, inter_mask
-        
-        # For interval of intersection, calculate number of points to sample. If value is 0, 
-        # it means should sampling in [near, far].
-        interval_lst = [hit_dists[:, 2*i+1] - hit_dists[:, 2*i] for i in range(N_interval)]
-        interval_lst = np.stack(interval_lst, axis=-1)
-        num_sampled = interval_lst / (interval_lst.sum(-1, keepdims=True)+1e-9) * N_samples  # num_sampled denote the number of points should be sampled in intersection interval, 
-        num_sampled_cumsum = np.round(num_sampled.cumsum(-1)).astype(np.int32)               # num_sampled is a (N_rays, N_interval) ndarray
-        num_sampled = num_sampled_cumsum.copy().astype(np.int32)
-        num_sampled[:, 1:] = num_sampled[:, 1:] - num_sampled[:, :-1]
-        
-        # construct the z_vals for sampleing points in rays
-        z_vals = np.zeros([N_rays, N_samples]) # (N_rays, N_samples)
-        
-        # Deprecated Method. aggsign the z_vals of non-intersectd rays as [near, far]
-        # If ray intersect with mesh, update near and far by intersection distance, else donot change.
-        t = np.linspace(0, 1, N_samples)
-        z_vals[~inter_mask] = near[~inter_mask] + (far[~inter_mask] - near[~inter_mask]) * t[None, :]
-        
-        # construct z_vals
-        grid_idx, _ = np.meshgrid(np.arange(N_samples), np.arange(N_rays))
-        for i in range(N_interval):
-            # calculated mean distance of current near and current far by num_sampled 
-            cur_near = hit_dists[:, 2*i]
-            cur_far = hit_dists[:, 2*i+1]
-            mean_dist = (cur_far - cur_near) / (num_sampled[:, i]+1e-10)
-            mean_dist = np.tile(mean_dist[:, None], [1, N_samples])
-            
-            # assign the z_vals of intersected rays as (cur_near, cur_far)
-            z_vals_tmp = np.zeros([N_rays, N_samples])
-            if i==0:
-                mask = grid_idx < np.tile(num_sampled_cumsum[:, i:i+1], [1, N_samples])
-            else:
-                mask1 = grid_idx >= np.tile(num_sampled_cumsum[:, i-1:i], [1, N_samples])
-                mask2 = grid_idx < np.tile(num_sampled_cumsum[:, i:i+1], [1, N_samples])
-                mask = mask1 & mask2
-            z_vals_tmp[mask] = mean_dist[mask]
-            if i == 0:
-                z_vals_tmp[:, 0] = cur_near
-            else:
-                idx = num_sampled[:, i-1] -1
-                idx[idx==-1] = 0
-                z_vals_tmp[np.arange(len(idx)), idx] = cur_near
-            z_vals[mask] = np.cumsum(z_vals_tmp, axis=-1)[mask]
-        
-        return z_vals, inter_mask
         
     def _get_patch_ray_indices(
             self, 
