@@ -320,12 +320,9 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
             else:
                 z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces, self.N_samples)
             
-            if self.use_inter_mask:
-                results['z_vals'] = z_vals[inter_mask].astype(np.float32)
-                results['batch_rays'] = batch_rays[inter_mask].astype(np.float32)
-            else:
-                results['z_vals'] = z_vals.astype(np.float32)
+            results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = inter_mask
+        
         return results
     
     def gen_rays_for_train(self, idx):
@@ -449,12 +446,9 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
             else:
                 z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces, self.N_samples)
             
-            if self.use_inter_mask:
-                results['z_vals'] = z_vals[inter_mask].astype(np.float32)
-                results['batch_rays'] = batch_rays[inter_mask].astype(np.float32)
-            else:
-                results['z_vals'] = z_vals.astype(np.float32)
+            results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = inter_mask
+            
         return results
     
     def __len__(self):

@@ -80,7 +80,7 @@ class IDHRLoss(nn.Module):
         inter_mask_ext = torch.zeros_like(target_patches)[..., 0].bool()
         for i in range(N_patch):
             inter_mask_ext[i, patch_masks[i].bool()] = inter_mask[div_indices[i]:div_indices[i+1]]
-        patch_imgs[inter_mask_ext] = pre_color
+        patch_imgs[inter_mask_ext] = pre_color[inter_mask]
         
         return patch_imgs, target_patches
     

@@ -227,13 +227,13 @@ class HFAvatar(pl.LightningModule):
             image_pred = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_rgb_fine) > 0:
                 img_fine = torch.cat(out_rgb_fine, dim=0)
-                image_pred[inter_mask] = img_fine
+                image_pred[inter_mask] = img_fine[inter_mask]
                 image_pred = (image_pred * 256).clip(0, 255)
 
             normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_normal_fine) > 0:
                 normal_img = torch.cat(out_normal_fine, dim=0)
-                normal_image[inter_mask] = normal_img
+                normal_image[inter_mask] = normal_img[inter_mask]
                 rot = torch.inverse(E[:3,:3])
                 normal_image = (torch.matmul(rot[None, ...], normal_image[..., None])[..., 0] * 128 + 128).clip(0, 255)
 
@@ -289,13 +289,13 @@ class HFAvatar(pl.LightningModule):
             
             image_targ = torch.tile(bg_color[None, None, :], (H, W, 1))
             img_true = data['batch_rays'][..., 6:9].squeeze()
-            image_targ[inter_mask] = img_true
+            image_targ[inter_mask] = img_true[inter_mask]
             image_targ = image_targ * 255
             
             image_pred = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_rgb_fine) > 0:
                 img_fine = torch.cat(out_rgb_fine, dim=0)
-                image_pred[inter_mask] = img_fine
+                image_pred[inter_mask] = img_fine[inter_mask]
                 image_pred = (image_pred * 256).clip(0, 255)
                 
                 if self.resolution_level == 1:
@@ -319,7 +319,7 @@ class HFAvatar(pl.LightningModule):
             normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_normal_fine) > 0:
                 normal_img = torch.cat(out_normal_fine, dim=0)
-                normal_image[inter_mask] = normal_img
+                normal_image[inter_mask] = normal_img[inter_mask]
                 rot = torch.inverse(E[:3,:3])
                 normal_image = (torch.matmul(rot[None, ...], normal_image[..., None])[..., 0] * 128 + 128).clip(0, 255)
             
