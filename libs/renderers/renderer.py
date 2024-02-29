@@ -464,8 +464,9 @@ class IDHRenderer:
         """
         N_rays, N_samples, _ = points_obs.shape
         points_obs = points_obs.reshape(1, -1, 3) # # (1, N_points, 3)
-        with torch.no_grad():
-            points_skl, pts_W_sampled = self.backward_lbs_knn(points_obs, dst_gtfms, **deform_kwargs) # (1, N_points, 3)
+        
+        # initial skinning
+        points_skl, pts_W_sampled = self.backward_lbs_knn(points_obs, dst_gtfms, **deform_kwargs) # (1, N_points, 3)
         
         # for free-viewpoint rendering instead of general pose
         if self.deform_mode == 0:
@@ -576,7 +577,7 @@ class IDHRenderer:
         Returns:
             _type_: _description_
         """
-        soft_blend = 24 # soft blend factor from SNARF
+        soft_blend = 20 # soft blend factor from SNARF
         wi = self.skinning_model(points, torch.empty(points.size(0), 0, device=points.device, dtype=torch.float32))
         wi = soft_blend * wi
         

@@ -289,7 +289,7 @@ class HFAvatar(pl.LightningModule):
                 torch.cuda.empty_cache()
                 del render_out
                 del data_batch
-                
+        
         with torch.no_grad():
             img_fine = None
             normal_img = None

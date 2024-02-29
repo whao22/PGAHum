@@ -26,15 +26,13 @@ def parse_arguments():
     return args
 
 if __name__ == '__main__':
-    # command line args
     args = parse_arguments()
     
-    # configration
+    # Configration
     conf = ConfigFactory.parse_file(args.conf)
     if args.base_exp_dir is not None:
         conf.put('general.base_exp_dir', args.base_exp_dir)
-    
-    # setting up logging
+
     FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
     logging.basicConfig(level=logging.INFO, format=FORMAT)
     seed_everything(3407)
