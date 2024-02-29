@@ -568,7 +568,7 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
         # so return the uniform sampling in [near, far].
         if N_interval == 0:
             t = np.linspace(0, 1, N_samples)
-            z_vals = near[:, None] + (far[:, None] - near[:, None]) * t[None, :]
+            z_vals = near + (far - near) * t[None, :]
             return z_vals, inter_mask
         
         # For interval of intersection, calculate number of points to sample. If value is 0, 
