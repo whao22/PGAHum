@@ -447,9 +447,10 @@ class IDHRenderer:
         if refined_Ts is not None:
             dst_Ts = dst_Ts + refined_Ts
         
-        # pose_refine_error = None
+        pose_refine_error = None
         # pose_refine_error = torch.norm(refined_Rs - torch.eye(3,3).to(refined_Rs), p=2)
-        pose_refine_error = torch.nn.functional.l1_loss(refined_Rs, torch.eye(3,3).expand_as(refined_Rs).to(refined_Rs))
+        # pose_refine_error = torch.nn.functional.l1_loss(refined_Rs, torch.eye(3,3).expand_as(refined_Rs).to(refined_Rs))
+        # pose_refine_error =  torch.abs(refined_Rs - torch.eye(3,3).expand_as(refined_Rs).to(refined_Rs)).reshape(-1, total_bones-1, 9).sum(-1).mean()
         return dst_Rs, dst_Ts, pose_refine_error
     
     def deform_points(self, points_obs, dst_posevec=None, dst_gtfms=None, **deform_kwargs):
@@ -466,7 +467,8 @@ class IDHRenderer:
         points_obs = points_obs.reshape(1, -1, 3) # # (1, N_points, 3)
         
         # initial skinning
-        points_skl, pts_W_sampled = self.backward_lbs_knn(points_obs, dst_gtfms, **deform_kwargs) # (1, N_points, 3)
+        with torch.no_grad():
+            points_skl, pts_W_sampled = self.backward_lbs_knn(points_obs, dst_gtfms, **deform_kwargs) # (1, N_points, 3)
         
         # for free-viewpoint rendering instead of general pose
         if self.deform_mode == 0:
@@ -474,33 +476,10 @@ class IDHRenderer:
             pts_W_pred = None
         elif self.deform_mode == 1:
             points_cnl, pts_W_pred = self.deform_points_skinning(points_obs, dst_gtfms, points_skl)
-            # points_cnl, pts_W_pred = self.deform_points_skinning_delta(points_obs, dst_gtfms, points_skl, pts_W_sampled)
         else:
             raise ValueError('Unknown deform_mode: {}'.format(self.deform_mode))
         
         return points_cnl.reshape(N_rays, N_samples, 3), pts_W_pred, pts_W_sampled
-
-    def deform_points_skinning_delta(self, 
-                                     points_obs: torch.Tensor, 
-                                     dst_gtfms: torch.Tensor, 
-                                     points_skl: torch.Tensor,
-                                     pts_weights: torch.Tensor):
-        """Deform the points in observation space into cononical space by querying the skinning 
-        weights from skinning model.
-
-        Args:
-            points_obs (torch.Tensor): _description_
-            dst_gtfms (torch.Tensor): _description_
-            points_skl (torch.Tensor): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        for i in range(self.N_iter_backward):
-            pts_W_pred = self.query_delta_weights(points_skl, pts_weights) # (1, N_points, 24)
-            # points_skl = self.backward_lbs(points_obs, dst_gtfms, pts_W_pred) # (1, N_points, 3)
-            points_skl = self.skinning_lbs_einsum(points_obs, dst_gtfms, pts_W_pred, inverse=True)
-        return points_skl, pts_W_pred
     
     def deform_points_skinning(self, points_obs: torch.Tensor, dst_gtfms: torch.Tensor, points_skl: torch.Tensor):
         """Deform the points in observation space into cononical space by querying the skinning 
@@ -514,11 +493,19 @@ class IDHRenderer:
         Returns:
             _type_: _description_
         """
-        for i in range(self.N_iter_backward):
+        # N-1 iteration of backward skinning for points obs-cnl warpping convergence
+        with torch.no_grad():
+            for i in range(self.N_iter_backward-1):
+                pts_W_pred = self.query_weights(points_skl) # (1, N_points, 24)
+                # points_skl = self.backward_lbs(points_obs, dst_gtfms, pts_W_pred) # (1, N_points, 3)
+                points_skl = self.skinning_lbs_einsum(points_obs, dst_gtfms, pts_W_pred, inverse=True)
+        
+        with torch.enable_grad():
             pts_W_pred = self.query_weights(points_skl) # (1, N_points, 24)
-            # points_skl = self.backward_lbs(points_obs, dst_gtfms, pts_W_pred) # (1, N_points, 3)
-            points_skl = self.skinning_lbs_einsum(points_obs, dst_gtfms, pts_W_pred, inverse=True)
-        return points_skl, pts_W_pred
+            # points_cnl = self.backward_lbs(points_obs, dst_gtfms, pts_W_pred) # (1, N_points, 3)
+            points_cnl = self.skinning_lbs_einsum(points_obs, dst_gtfms, pts_W_pred, inverse=True)
+        
+        return points_cnl, pts_W_pred
     
     def deform_points_non_rigid(self, points_skl: torch.Tensor, dst_posevec: torch.Tensor):
         points_skl = points_skl.reshape(-1, 3) # (N_points, 3)

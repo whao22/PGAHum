@@ -21,6 +21,7 @@ class IDHRLoss(nn.Module):
                  rgb_loss_type='l1',
                  lpips = None,
                  weight_decay_end=1e10,
+                 kick_out_iter_skinning=100000,
                  **kwargs):
         """initialize loss class for loss computing. 
 
@@ -47,6 +48,7 @@ class IDHRLoss(nn.Module):
         self.params_weight = params_weight
         self.pose_refine_weight = pose_refine_weight
         self.weight_decay_end = weight_decay_end
+        self.kick_out_iter_skinning = kick_out_iter_skinning
         
         if rgb_loss_type == 'l1':
             self.l1_loss = nn.L1Loss(reduction='mean')
@@ -159,7 +161,7 @@ class IDHRLoss(nn.Module):
         else:
             loss_nssim = torch.zeros(1, device=device)
         
-        if self.skinning_weight > 0 and pts_w_pre is not None:
+        if self.skinning_weight > 0 and pts_w_pre is not None and iter_step < self.kick_out_iter_skinning:
             loss_skinning_weights = self.get_skinning_weights_loss(pts_w_pre, pts_w_gt)
         else:
             loss_skinning_weights = torch.zeros(1, device=device)

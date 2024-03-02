@@ -6,7 +6,7 @@
 #SBATCH --mem=256G
 #SBATCH --partition=gpujl
 #SBATCH --gres=gpu:4
-#SBATCH --exclude=node03,node04,node05,node15
+#SBATCH --exclude=node14
 
 # show currrent status
 echo Start time is `date`
@@ -18,7 +18,7 @@ gpustat
 ################################################################
 ##################### CUSTOM SCRIPTS START #####################
 
-user_comment='mvs_1_1_2_true'
+user_comment='mvs_1_1_3_true'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"

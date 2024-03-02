@@ -58,7 +58,8 @@ class HFAvatar(pl.LightningModule):
         self.criteria = IDHRLoss(**conf['train.weights'],
                                  rgb_loss_type=conf.train.rgb_loss_type,
                                  lpips = self.lpips,
-                                 weight_decay_end = conf.train.weight_decay_end,)
+                                 weight_decay_end = conf.train.weight_decay_end,
+                                 kick_out_iter_skinning = conf.model.skinning_model.kick_out_iter)
         
         # Networks
         nets_to_train = {}
@@ -338,94 +339,6 @@ class HFAvatar(pl.LightningModule):
                     images=[image_pred.detach().cpu().numpy(), 
                             image_targ.detach().cpu().numpy(), 
                             normal_image.detach().cpu().numpy()],
-                    caption=["pred image", 'GT image',"normal map"]
-            )
-        
-        return metrics_dict
-    
-    def validation_step_iloc(self, data, idx):
-        if self.sdf_mode == 'hyper_net':
-            sdf_decoder, sdf_params = self.get_sdf_decoder(data, idx)
-        
-        with torch.enable_grad():
-            out_rgb_fine = []
-            out_normal_fine = []
-            metrics_dict = {}
-            
-            batch_rays_list = torch.split(data['batch_rays'], self.N_rays, dim=1)
-            z_vals_list = torch.split(data['z_vals'], self.N_rays, dim=1)
-            hit_mask_list = torch.split(data['hit_mask'], self.N_rays, dim=1)
-            
-            for batch_rays, z_vals, hit_mask in zip(batch_rays_list, z_vals_list, hit_mask_list):
-                data_batch = data.copy()
-                data_batch['batch_rays'] = batch_rays
-                if self.inner_sampling:
-                    data_batch['z_vals'] = z_vals
-                    data_batch['hit_mask'] = hit_mask
-                
-                render_out = self.renderer.render(data_batch, 
-                                                    self.global_step, 
-                                                    cos_anneal_ratio = self.get_cos_anneal_ratio(), 
-                                                    sdf_decoder = sdf_decoder if self.sdf_mode == 2 else None)
-
-                if feasible('color', render_out):
-                    out_rgb_fine.append(render_out['color'].detach().cpu().numpy())
-                if feasible('gradients', render_out) and feasible('weights', render_out):
-                    n_samples = self.renderer.n_samples + self.renderer.n_importance
-                    normals = render_out['gradients'] * render_out['weights'][:, :n_samples, None]
-                    if feasible('inside_sphere', render_out):
-                        normals = normals * render_out['inside_sphere'][..., None]
-                    normals = normals.sum(dim=1).detach().cpu().numpy()
-                    # normals = (normals.sum(dim=1)**2).sum(dim=1,keepdim=True).sqrt().tile(1,3).detach().cpu().numpy()
-                    out_normal_fine.append(normals)
-                torch.cuda.empty_cache()
-                del render_out
-                del data_batch
-        
-        with torch.no_grad():
-            img_fine = None
-            normal_img = None
-            H, W, E = data['height'].squeeze(), data['width'].squeeze(), data['extrinsic'].squeeze()
-            img_true = data['batch_rays'][..., 6:9].reshape(H,W,3).squeeze()
-            
-            if len(out_rgb_fine) > 0:
-                img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3, -1]) * 256).clip(0, 255)
-                if self.resolution_level == 1:
-                    bbox_mask = data['bbox_mask'].squeeze().detach().cpu().numpy() # (H, W), ndarray
-                    x, y, w, h = cv2.boundingRect(bbox_mask.astype(np.uint8))
-                    
-                    color_pred = torch.from_numpy(np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3])).to(img_true) # (H, W, 3), ndarray
-                    color_trgt = img_true.clone() # (H, W, 3), ndarray
-                    color_pred = color_pred[y:y+h, x:x+w]
-                    color_trgt = color_trgt[y:y+h, x:x+w]
-                    
-                    mse = F.mse_loss(color_pred, color_trgt).item()
-                    psnr = mse2psnr(mse)
-                    ssim = pytorch_ssim.ssim(color_pred.permute(2, 0, 1).unsqueeze(0), color_trgt.permute(2, 0, 1).unsqueeze(0)).item()
-                    lpips = self.lpips(color_pred.permute(2, 0, 1).unsqueeze(0), color_trgt.permute(2, 0, 1).unsqueeze(0)).item()
-                    metrics_dict.update({
-                        'psnr': psnr,
-                        'ssim': ssim,
-                        'lpips': lpips
-                    })
-
-            if len(out_normal_fine) > 0:
-                normal_img = np.concatenate(out_normal_fine, axis=0)
-                rot = np.linalg.inv(E[:3,:3].detach().cpu().numpy())
-                normal_img = (np.matmul(rot[None, :, :], normal_img[:, :, None])
-                            .reshape([H, W, 3, -1]) * 128 + 128).clip(0, 255)
-            
-            for i in range(img_fine.shape[-1]):
-                if len(out_rgb_fine) > 0:
-                    pred_image = img_fine[..., i]
-                    gt_image = img_true.detach().cpu().numpy()*255
-                    
-                if len(out_normal_fine) > 0:
-                    mormal_map = normal_img[..., i]
-            
-            # log
-            self.logger.log_image(key="validation_samples",
-                    images=[pred_image, gt_image, mormal_map],
                     caption=["pred image", 'GT image',"normal map"]
             )
         
