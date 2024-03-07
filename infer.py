@@ -14,13 +14,13 @@ from libs import module_config
 parser = argparse.ArgumentParser(
     description='Inference function on with-distribution poses (ZJU training and testing).'
 )
-parser.add_argument('conf', type=str, help='Path to config file.')
+parser.add_argument('--conf', type=str, help='Path to config file.')
 parser.add_argument('--base_exp_dir', type=str, default=None)
 parser.add_argument('--infer_mode', type=str, default='val')
 parser.add_argument('--novel_pose', type=str, default=None, help='Test specified novel pose, e.g. data/data_prepared/CoreView_392')
 parser.add_argument('--novel_view', type=int, default=-1, help='Test specified novel view, e.g. 1, 2, 3')
 parser.add_argument('--resolution_level', type=int, default=1, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
-parser.add_argument('--gpus', type=list, default=[3], help='Test on multiple GPUs.')
+parser.add_argument('--gpus', type=list, default=[1,2,3], help='Test on multiple GPUs.')
 parser.add_argument('--num-workers', type=int, default=4,
                     help='Number of workers to use for val/test loaders.')
 parser.add_argument('--run-name', type=str, default='',
@@ -33,11 +33,11 @@ if  __name__ == '__main__':
     split_mode = args.infer_mode
     conf['dataset']['res_level'] = args.resolution_level
     conf['dataset'][f'{split_mode}_subsampling_rate'] = 200
-    conf['dataset'][f'{split_mode}_start_frame'] = 0
-    conf['dataset'][f'{split_mode}_end_frame'] = 500
+    conf['dataset'][f'{split_mode}_start_frame'] = 200
+    conf['dataset'][f'{split_mode}_end_frame'] = -1
     
     # Validation dataset for novel views
-    if args.novel_view >= 0:
+    if args.novel_view != -1:
         conf['dataset'][f'{split_mode}_views'] = [args.novel_view]
     
     # Novel-pose synthesis on training view, we determine when novel_pose is on, the split mode should not be 'val'.
@@ -53,7 +53,7 @@ if  __name__ == '__main__':
         shuffle=False)
 
     # Model
-    model = module_config.get_model(conf, args.base_exp_dir)
+    model = module_config.get_model(conf)
 
     out_dir = args.base_exp_dir
     # Create logger
@@ -73,7 +73,7 @@ if  __name__ == '__main__':
                                     project='hf-avatar',
                                     id=run_id,
                                     save_dir=out_dir,
-                                    config=conf,
+                                    config=conf.__dict__,
                                     **kwargs)
 
     # Create PyTorch Lightning trainer
@@ -84,6 +84,7 @@ if  __name__ == '__main__':
     trainer = pl.Trainer(logger=logger,
                         default_root_dir=out_dir,
                         accelerator='gpu',
+                        strategy='ddp' if len(args.gpus) > 1 else None,
                         devices=args.gpus,
                         num_sanity_val_steps=0)
     

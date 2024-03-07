@@ -7,6 +7,7 @@ from tqdm import tqdm
 import torch
 import torch.utils.data
 import trimesh
+from scipy.spatial.transform import Rotation
 
 from libs.utils.general_utils import rays_mesh_intersections_pcu, get_02v_bone_transforms, get_z_vals
 from libs.utils.images_utils import load_image
@@ -21,7 +22,27 @@ from libs.utils.camera_utils import \
     rays_intersect_3d_bbox
 
 
-class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
+def apply_global_tfm_to_camera_new(E, Rh, Th):
+    r""" Get camera extrinsics that considers global transformation.
+
+    Args:
+        - E: Array (3, 3)
+        - Rh: Array (3, )
+        - Th: Array (3, )
+        
+    Returns:
+        - Array (3, 3)
+    """
+
+    global_tfms = np.eye(4)  #(4, 4)
+    global_rot = cv2.Rodrigues(Rh)[0].T
+    global_rot = global_rot @ Rotation.from_euler('xyz', [180, 0, 0], degrees=True).as_matrix()
+    global_trans = Th
+    global_tfms[:3, :3] = global_rot
+    global_tfms[:3, 3] = -global_rot.dot(global_trans)
+    return E.dot(np.linalg.inv(global_tfms))
+
+class PeopleSnapshotDataset(torch.utils.data.Dataset):
     def __init__(self, 
                  dataset_folder='data/data_prepared',
                  subjects=['CoreView_313'],
@@ -75,7 +96,7 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
         self.skinning_weights = dict(np.load('data/body_models/misc/skinning_weights_all.npz'))
         self.posedirs = dict(np.load('data/body_models/misc/posedirs_all.npz'))
         self.J_regressor = dict(np.load('data/body_models/misc/J_regressors.npz'))
-        
+
         images, masks = {}, {}
         for view in self.views:
             framelist = self.framelist_dict[view]
@@ -183,7 +204,7 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
             D = self.cameras_dict[view][frame_name]['distortions']
             orig_img = cv2.undistort(orig_img, K, D)
             alpha_mask = cv2.undistort(alpha_mask, K, D)[..., None]
-
+        
         alpha_mask = alpha_mask / 255.
         img = alpha_mask * orig_img + (1.0 - alpha_mask) * bg_color[None, None, :]
         # a = img.astype(np.uint8)
@@ -258,10 +279,10 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
                 Rh=dst_skel_info['Rh'],
                 Th=dst_skel_info['Th'])
         R = E[:3, :3]
-        T = E[:3, 3]
+        T = E[:3, 3:]
 
-        # calculate rays in world coordinate from pixel/image coordinate 
-        rays_o, rays_d = get_rays_from_KRT(H, W, K, R, T) # (H, W, 3)
+        # calculate rays in world coordinate from pixel/image coordinate
+        rays_o, rays_d = make_rays()
 
         # calculate rays and near & far which intersect with cononical space bbox
         near_, far_, rays_mask = rays_intersect_3d_bbox(dst_bbox, rays_o.reshape(-1, 3), rays_d.reshape(-1, 3))
@@ -349,15 +370,17 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
         K[:2] *= self.resize_img_scale
 
         E = self.cameras_dict[view][frame_name]['extrinsics'].copy()
-        E = apply_global_tfm_to_camera(
-                E=E, 
+        E[:3,:3] = E[:3,:3] @ Rotation.from_euler('xyz', [180, 0, 0], degrees=True).as_matrix()
+        E = apply_global_tfm_to_camera_new(
+                E=E,
                 Rh=dst_skel_info['Rh'],
-                Th=dst_skel_info['Th'])
+                Th=np.array([0,0,0]))
         R = E[:3, :3]
-        T = E[:3, 3]
+        T = dst_skel_info['Th']
 
         # calculateinfo rays in world coordinate from pixel/image coordinate
         rays_o, rays_d = get_rays_from_KRT(H, W, K, R, T)
+        
         rays_img = image.reshape(-1, 3) # (H, W, 3) --> (HxW, 3)
         rays_alpha = alpha.reshape(-1, 1) # (H, W, 1) --> (HxW, 1)
         rays_o = rays_o.reshape(-1, 3) # (H, W, 3) --> (HxW, 3)
@@ -365,6 +388,8 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
 
         # calculate rays and near & far which intersect with cononical space bbox
         near, far, ray_mask = rays_intersect_3d_bbox(dst_bbox, rays_o, rays_d)
+        aa = ray_mask.reshape(1080, 1080)
+        cv2.imwrite("aa.jpg", aa.astype(np.uint8)*255)
         rays_o = rays_o[ray_mask] # (len(ray_mask), 3)
         rays_d = rays_d[ray_mask] # (len(ray_mask), 3)
         rays_img = rays_img[ray_mask] # (len(ray_mask), 3)

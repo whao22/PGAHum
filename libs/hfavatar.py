@@ -309,24 +309,26 @@ class HFAvatar(pl.LightningModule):
                 image_pred[inter_mask] = img_fine[inter_mask.reshape(-1)]
                 image_pred = (image_pred * 256).clip(0, 255)
                 
-                if self.resolution_level == 1:
-                    bbox_mask = data['bbox_mask'].squeeze().detach().cpu().numpy() # (H, W), ndarray
-                    x, y, w, h = cv2.boundingRect(bbox_mask.astype(np.uint8))
-                    
-                    image_pred = image_pred[y:y+h, x:x+w]
-                    image_targ = image_targ[y:y+h, x:x+w]
-                    
-                    mse = F.mse_loss(image_pred, image_targ).item()
-                    psnr = mse2psnr(mse)
-                    ssim = pytorch_ssim.ssim(image_pred.permute(2, 0, 1).unsqueeze(0), image_targ.permute(2, 0, 1).unsqueeze(0)).item()
-                    lpips = self.lpips(image_pred.permute(2, 0, 1).unsqueeze(0), image_targ.permute(2, 0, 1).unsqueeze(0)).item()
-                    
-                    metrics_dict.update({
-                        'psnr': psnr,
-                        'ssim': ssim,
-                        'lpips': lpips
-                    })
+                bbox_mask = data['bbox_mask'].squeeze().detach().cpu().numpy() # (H, W), ndarray
+                x, y, w, h = cv2.boundingRect(bbox_mask.astype(np.uint8))
+                image_pred_ = image_pred[y:y+h, x:x+w] / 255
+                image_targ_ = image_targ[y:y+h, x:x+w] / 255
+                
+                psnr = mse2psnr(F.mse_loss(image_pred_, image_targ_).item())
+                ssim = pytorch_ssim.ssim(image_pred_.permute(2, 0, 1).unsqueeze(0), image_targ_.permute(2, 0, 1).unsqueeze(0)).item()
+                lpips = self.lpips(image_pred_.permute(2, 0, 1).unsqueeze(0), image_targ_.permute(2, 0, 1).unsqueeze(0)).item()
+                metrics_dict.update({
+                    'psnr': psnr,
+                    'ssim': ssim,
+                    'lpips': lpips
+                })
 
+                self.logger.log_image(key="cropped_images",
+                    images=[(image_pred_*255).detach().cpu().numpy(), 
+                            (image_targ_*255).detach().cpu().numpy()],
+                    caption=["pred image", 'GT image']
+                )
+            
             normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_normal_fine) > 0:
                 normal_img = torch.cat(out_normal_fine, dim=0)
@@ -341,32 +343,25 @@ class HFAvatar(pl.LightningModule):
                             normal_image.detach().cpu().numpy()],
                     caption=["pred image", 'GT image',"normal map"]
             )
-        
+            
         return metrics_dict
-
-    def _process_validation_epoch_outputs(self, validation_step_outputs):
+    
+    def validation_epoch_end(self, validation_step_outputs):
         psnr, ssim, lpips = [], [], []
-        
         for output in validation_step_outputs:
             if len(output) >= 1:
                 psnr.append(output['psnr'])
                 ssim.append(output['ssim'])
                 lpips.append(output['lpips'])
 
-        return psnr, ssim, lpips
-    
-    def validation_epoch_end(self, validation_step_outputs):
-        if self.resolution_level == 1:
-            psnr, ssim, lpips = self._process_validation_epoch_outputs(validation_step_outputs)
-
-            if len(psnr) >= 1:
-                psnr = np.array(psnr).mean()
-                ssim = np.array(ssim).mean()
-                lpips = np.array(lpips).mean()
-                
-                self.log('PSNR', psnr)
-                self.log('SSIM', ssim)
-                self.log('LPIPS', lpips)
+        if len(psnr) >= 1:
+            psnr = np.array(psnr).mean()
+            ssim = np.array(ssim).mean()
+            lpips = np.array(lpips).mean()
+            
+            self.log('val_psnr', psnr)
+            self.log('val_ssim', ssim)
+            self.log('val_lpips', lpips)
     
     def on_before_optimizer_step(self, optimizer: Optimizer, optimizer_idx: int) -> None:
         self.update_learning_rate(optimizer)

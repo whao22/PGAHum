@@ -137,7 +137,7 @@ if  __name__ == '__main__':
     
     # Model
     print("Load model ...")
-    model = module_config.get_model(conf, args.base_exp_dir)
+    model = module_config.get_model(conf)
 
     # Load State Dict
     checkpoint_path = os.path.join(out_dir, 'checkpoints/last.ckpt')

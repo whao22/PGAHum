@@ -30,9 +30,10 @@ if __name__ == '__main__':
     conf = ConfigFactory.parse_file(args.conf)
     if args.base_exp_dir is not None:
         conf.put('general.base_exp_dir', args.base_exp_dir)
-
+    
     FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
     logging.basicConfig(level=logging.INFO, format=FORMAT)
+    logging.info(f'Config: {conf}')
     seed_everything(3407)
     
     # Dataset
@@ -46,16 +47,18 @@ if __name__ == '__main__':
         batch_size=conf.train.batch_size,
         num_workers=conf.train.num_workers,
         shuffle=False)
-    # for i in train_dloader:
-    #     print(i)
+    for i in train_dloader:
+        print(i)
     
     # Model
     model = module_config.get_model(conf)
-    checkpoint_callback = ModelCheckpoint(save_top_k=0,
+    checkpoint_callback = ModelCheckpoint(save_top_k=3,
                                           dirpath=os.path.join(conf.general.base_exp_dir, 'checkpoints'),
                                           every_n_epochs=conf.train.save_every_epoch,
                                           save_on_train_epoch_end=True,
-                                          save_last=True)
+                                          save_last=True,
+                                          monitor='val_psnr',
+                                          mode='max')
     
     # Logger
     latest_wandb_path = glob(os.path.join(conf.general.base_exp_dir, 'wandb', 'latest-run', 'run-*.wandb'))
@@ -110,6 +113,6 @@ if __name__ == '__main__':
                         accelerator='gpu',
                         strategy='ddp' if len(conf.train.gpus) > 1 else None,
                         devices=conf.train.gpus,
-                        num_sanity_val_steps=0)
+                        num_sanity_val_steps=3)
     
     trainer.fit(model=model, train_dataloaders=train_dloader, val_dataloaders=val_dloader, ckpt_path=checkpoint_path)
