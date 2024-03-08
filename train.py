@@ -47,8 +47,12 @@ if __name__ == '__main__':
         batch_size=conf.train.batch_size,
         num_workers=conf.train.num_workers,
         shuffle=False)
-    for i in train_dloader:
-        print(i)
+    # for i in train_dloader:
+    #     print(i)
+    
+    # for i in val_dloader:
+    #     print(i)
+    
     
     # Model
     model = module_config.get_model(conf)

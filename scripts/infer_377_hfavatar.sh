@@ -1,4 +1,4 @@
-exp_name="CoreView_377_1709393779_slurm_mvs_1_1_3_true"
+exp_name="CoreView_377_1709621919_slurm_mvs_1_1_1_true"
 conf="confs/hfavatar-zju/ZJUMOCAP-377-4gpus.conf"
 base_exp_dir="exp/${exp_name}"
 

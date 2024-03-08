@@ -2,6 +2,7 @@ import os
 import glob
 import torch
 import wandb
+import logging
 import numpy as np
 import pytorch_lightning as pl
 import argparse
@@ -20,7 +21,7 @@ parser.add_argument('--infer_mode', type=str, default='val')
 parser.add_argument('--novel_pose', type=str, default=None, help='Test specified novel pose, e.g. data/data_prepared/CoreView_392')
 parser.add_argument('--novel_view', type=int, default=-1, help='Test specified novel view, e.g. 1, 2, 3')
 parser.add_argument('--resolution_level', type=int, default=1, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
-parser.add_argument('--gpus', type=list, default=[1,2,3], help='Test on multiple GPUs.')
+parser.add_argument('--gpus', type=list, default=[0,1], help='Test on multiple GPUs.')
 parser.add_argument('--num-workers', type=int, default=4,
                     help='Number of workers to use for val/test loaders.')
 parser.add_argument('--run-name', type=str, default='',
@@ -32,8 +33,8 @@ if  __name__ == '__main__':
     num_workers = args.num_workers
     split_mode = args.infer_mode
     conf['dataset']['res_level'] = args.resolution_level
-    conf['dataset'][f'{split_mode}_subsampling_rate'] = 200
-    conf['dataset'][f'{split_mode}_start_frame'] = 200
+    conf['dataset'][f'{split_mode}_subsampling_rate'] = 1000
+    conf['dataset'][f'{split_mode}_start_frame'] = 400
     conf['dataset'][f'{split_mode}_end_frame'] = -1
     
     # Validation dataset for novel views
@@ -77,7 +78,7 @@ if  __name__ == '__main__':
                                     **kwargs)
 
     # Create PyTorch Lightning trainer
-    checkpoint_path = os.path.join(out_dir, 'checkpoints/last.ckpt')
+    checkpoint_path = os.path.join(out_dir, 'checkpoints/epoch=469-step=140999.ckpt')
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')
 

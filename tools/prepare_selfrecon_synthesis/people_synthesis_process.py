@@ -49,65 +49,51 @@ def prepare_smpl_sdf(vertices, volume_size):
     return smpl_sdf
 
 
-def process_view(root, sid, save_root, end_frame):
+def process_view(root, start_frame, end_frame, save_root):
+    masks_dir = osp.join(root,'masks')
+    images_dir = osp.join(root, 'imgs')
+    normals_dir = osp.join(root, 'normals')
+    frame_num = len(glob(osp.join(masks_dir, '*.png')))
+    
     # masks
-    frame_num = None
-    with h5py.File(osp.join(root, 'masks.hdf5'), 'r') as ff:
-        frame_num = ff['masks'].shape[0]
-        if end_frame >= 0 and end_frame < frame_num:
-            frame_num = end_frame
-        assert frame_num > sid
-        mask_root = osp.join(save_root, 'masks')
-        os.makedirs(mask_root, exist_ok=True)
-        for ind in tqdm(range(sid, frame_num), desc='masks'):
-            cv2.imwrite(osp.join(mask_root, 'frame_%06d.png' %
-                        (ind-sid)), ff['masks'][ind]*255)
-
-    video = glob(osp.join(root, '*.mp4'))
-    assert (len(video) == 1)
-    video = video[0]
-
-    cap = cv2.VideoCapture(video)
-    rgb_root = osp.join(save_root, 'images')
-    if not osp.isdir(rgb_root):
-        os.makedirs(rgb_root)
+    mask_root = osp.join(save_root, 'masks')
+    os.makedirs(mask_root, exist_ok=True)
+    for ind in tqdm(range(start_frame, frame_num), desc='masks'):
+        mask = cv2.imread(osp.join(masks_dir, '%06d.png' % ind))
+        cv2.imwrite(osp.join(mask_root, 'frame_%06d.png' % ind), mask)
 
     # images
-    for ind in tqdm(range(frame_num), desc='rgbs'):
-        check, img = cap.read()
-        if ind < sid:
-            continue
-        if img.shape[:2] == (1080, 1920):
-            img = img.transpose(1, 0, 2)
-            img = img[:, ::-1, :]
-        if not check:
-            break
-        cv2.imwrite(osp.join(rgb_root, 'frame_%06d.png' % (ind-sid)), img)
-    cap.release()
+    rgb_root = osp.join(save_root, 'images')
+    os.makedirs(rgb_root, exist_ok=True)
+    for ind in tqdm(range(start_frame, frame_num), desc='images'):
+        image = cv2.imread(osp.join(images_dir, '%06d.png' % ind))
+        cv2.imwrite(osp.join(rgb_root, 'frame_%06d.png' % ind), image)
+        
+    # normals
+    normals_root = osp.join(save_root, 'normals')
+    os.makedirs(normals_root, exist_ok=True)
+    for ind in tqdm(range(start_frame, frame_num), desc='normals'):
+        normal = cv2.imread(osp.join(normals_dir, '%06d.png' % ind))
+        cv2.imwrite(osp.join(normals_root, 'frame_%06d.png' % ind), normal)
 
     # cameras
-    with open(osp.join(root, 'camera.pkl'), 'rb') as ff:
-        cam_data = pickle.load(ff, encoding='latin1')
-        center = cam_data['camera_c']
-        focus = cam_data['camera_f']
-        trans = cam_data['camera_t']
-        rt = cam_data['camera_rt']
-        distortions = cam_data['camera_k']
-        # The cameras of snapshot dataset seems no rotation and translation
-        assert (np.linalg.norm(rt) < 0.0001)
-
-        rt_mat = cv2.Rodrigues(rt)[0]
-        fx = focus[0]
-        fy = focus[1]
-        cx = center[0]
-        cy = center[1]
-
+    camera_data = np.load(osp.join(root, 'camera.npz'), allow_pickle=True)
+    fx = camera_data['fx']
+    fy = camera_data['fy']
+    cx = camera_data['cx']
+    cy = camera_data['cy']
+    quat_wxyz = camera_data['quat']
+    quat_xyzw = np.roll(quat_wxyz, -1)
+    # rt_mat = Rotation.from_quat(quat_xyzw).as_matrix()
+    rt_mat = np.eye(3)
+    trans = camera_data['T']
+    
     cameras_info = {}
     for ind in tqdm(range(frame_num), desc='cameras'):
         E = np.eye(4)
         E[:3, :3] = rt_mat
         E[:3, 3] = trans
-        D = distortions
+        D = None
         camera_info = {
             'intrinsics': np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]]).astype(np.float32),
             'extrinsics': E.astype(np.float32),
@@ -123,7 +109,7 @@ def process_view(root, sid, save_root, end_frame):
 
 def main(cfg):
     root = osp.join(cfg['dataset']['data_path'], cfg['dataset']['subject'])
-    sid = cfg['dataset']['start_frame']
+    start_frame = cfg['dataset']['start_frame']
     end_frame = cfg['dataset']['end_frame']
     model_path = cfg['dataset']['model_path']
     gender = cfg['dataset']['sex']
@@ -138,16 +124,14 @@ def main(cfg):
     for view in select_views:
         images_dir = osp.join(save_root, f"{view}")
         os.makedirs(images_dir, exist_ok=True)
-        frame_num = process_view(root, sid, images_dir, end_frame)
+        frame_num = process_view(root, start_frame, end_frame, images_dir)
 
-    with h5py.File(osp.join(root, 'reconstructed_poses.hdf5'), 'r') as ff:
-        shape = ff['betas'][:].reshape(10)
-        poses = ff['pose'][:].reshape(-1, 24, 3)[sid:, :, :]
-        trans = ff['trans'][:].reshape(-1, 3)[sid:, :]
-        assert (poses.shape[0] >= frame_num -
-                sid and trans.shape[0] >= frame_num-sid)
-        # np.savez(osp.join(save_root,'smpl_rec.npz'),poses=poses,shape=shape,trans=trans,gender=gender)
-
+    # mesh info
+    smpl_rec_data = np.load(osp.join(root,'smpl_rec.npz'), allow_pickle=True)
+    shape = smpl_rec_data['shape'] # (10,)
+    poses = smpl_rec_data['poses'] # (frame_num, 24, 3)
+    trans = smpl_rec_data['trans'] # (frame_num, 3)
+    
     mesh_infos = {}
     smpl_model = SMPL(sex=gender, model_dir=model_path)
     for ind in tqdm(range(frame_num), desc='mesh_infos'):
@@ -215,6 +199,6 @@ def main(cfg):
 
 
 if __name__ == '__main__':
-    ''' python tools/prepare_people_snapeshot/people_snapshot_process.py --conf tools/prepare_people_snapeshot/confs_preprocess/male-4-casual.yaml '''
+    ''' python tools/prepare_selfrecon_synthesis/people_synthesis_process.py --conf tools/prepare_selfrecon_synthesis/confs_preprocess/male-outfit2.yaml '''
     cfg = parse_cfg()
     main(cfg)

@@ -4,6 +4,7 @@ from collections import OrderedDict
 from libs.datasets.zjumocap_odp import ZJUMoCapDataset_ODP
 from libs.datasets.zjumocap_mvs import ZJUMoCapDataset_MVS
 from libs.datasets.people_snapshot import PeopleSnapshotDataset
+from libs.datasets.selfrecon_synthesis import SelfreconSynthesisDataset
 from libs.hfavatar import HFAvatar
 from libs.models.siren_modules import HyperBVPNet
 from libs.models.deformer import Deformer
@@ -265,6 +266,28 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
         )
     elif dataset_type == 'People_Snapshot':
         dataset = PeopleSnapshotDataset(
+            dataset_folder=dataset_folder,
+            subjects=split,
+            mode=mode,
+            resize_img_scale=resize_img_scale,
+            start_frame=start_frame,
+            end_frame=end_frame,
+            sampling_rate=subsampling_rate,
+            views=view_split,
+            box_margin=box_margin,
+            ray_shoot_mode=ray_shoot_mode,
+            backgroung_color=backgroung_color,
+            patch_size=patch_size,
+            N_patches=N_patches,
+            sample_subject_ratio=sample_subject_ratio,
+            N_samples=N_samples,
+            inner_sampling=inner_sampling,
+            res_level=res_level,
+            use_dilated=use_dilated,
+            use_inter_mask=use_inter_mask,
+        )
+    elif dataset_type == 'SelfreconSynthesis':
+        dataset = SelfreconSynthesisDataset(
             dataset_folder=dataset_folder,
             subjects=split,
             mode=mode,

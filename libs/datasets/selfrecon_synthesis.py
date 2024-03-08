@@ -21,7 +21,7 @@ from libs.utils.camera_utils import \
     get_rays_from_KRT, \
     rays_intersect_3d_bbox
 
-class PeopleSnapshotDataset(torch.utils.data.Dataset):
+class SelfreconSynthesisDataset(torch.utils.data.Dataset):
     def __init__(self, 
                  dataset_folder='data/data_prepared',
                  subjects=['CoreView_313'],
@@ -176,13 +176,6 @@ class PeopleSnapshotDataset(torch.utils.data.Dataset):
 
         maskpath = os.path.join(self.dataset_path, view, 'masks','{}.png'.format(frame_name))
         alpha_mask = np.array(load_image(maskpath))[...,:1]
-        
-        # undistort image
-        if frame_name in self.cameras_dict[view] and 'distortions' in self.cameras_dict[view][frame_name]:
-            K = self.cameras_dict[view][frame_name]['intrinsics']
-            D = self.cameras_dict[view][frame_name]['distortions']
-            orig_img = cv2.undistort(orig_img, K, D)
-            alpha_mask = cv2.undistort(alpha_mask, K, D)[..., None]
         
         alpha_mask = alpha_mask / 255.
         img = alpha_mask * orig_img + (1.0 - alpha_mask) * bg_color[None, None, :]
@@ -371,7 +364,7 @@ class PeopleSnapshotDataset(torch.utils.data.Dataset):
         # calculate rays and near & far which intersect with cononical space bbox
         near, far, ray_mask = rays_intersect_3d_bbox(dst_bbox, rays_o, rays_d)
         # # for debug
-        # aa = ray_mask.reshape(1080, 1080)
+        # aa = ray_mask.reshape(1024, 1024)
         # cv2.imwrite("aa.jpg", aa.astype(np.uint8)*255)
         # cv2.imwrite("bb.jpg", image*255)
         

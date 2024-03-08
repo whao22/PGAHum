@@ -322,6 +322,7 @@ class HFAvatar(pl.LightningModule):
                     'ssim': ssim,
                     'lpips': lpips
                 })
+                print(f"PSNR: {psnr:.2f}, SSIM: {ssim:.4f}, LPIPS: {lpips:.4f}")
 
                 self.logger.log_image(key="cropped_images",
                     images=[(image_pred_*255).detach().cpu().numpy(), 
