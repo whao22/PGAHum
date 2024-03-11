@@ -84,7 +84,7 @@ class IDHRenderer:
         
         norm = torch.norm(dirs, p=2, dim=-1, keepdim=True)
         dirs = dirs / (norm + 1e-12)
-        return dirs
+        return -dirs
 
     def deform_dirs(self, ray_dirs, points_cnl, transforms_bwd): ## TODO confirm whether the implement is right or not.
         N_rays, N_samples, _ = points_cnl.shape

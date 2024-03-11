@@ -110,8 +110,18 @@ class IDHRLoss(nn.Module):
     def get_skinning_weights_loss(self, pts_w_pre, pts_w_gt):
         return torch.abs(pts_w_pre - pts_w_gt).sum(-1).mean()
 
-    def get_mask_loss(self, device):
-        return torch.zeros(1, device=device)
+    def get_mask_loss(self, model_outputs, ground_truth, device):
+        normals = model_outputs['gradients'] * model_outputs['weights'][..., None]
+        normals = normals.sum(1)
+        # E = ground_truth['E'].unsqueeze(0)
+        # rot = torch.inverse(E[:3, :3])
+        # normals = (torch.matmul(rot[None, ...], normals[..., None])[..., 0] * 128 + 128).clip(0, 255)
+        normals_mask = (normals.sum(-1) > 0).float()
+        fg_mask = ground_truth['batch_rays'][..., 9:10][0]
+        fg_mask = fg_mask.reshape(normals_mask.shape)
+        
+        mask_loss = F.binary_cross_entropy(normals_mask, fg_mask)
+        return mask_loss
 
     def get_sdf_params_loss(self, sdf_params):
         sdf_params = torch.cat(sdf_params, dim=1)
@@ -172,7 +182,7 @@ class IDHRLoss(nn.Module):
             loss_eikonal = torch.zeros(1, device=device)
         
         if self.mask_weight > 0:
-            loss_mask = self.get_mask_loss(device)
+            loss_mask = self.get_mask_loss(model_outputs, ground_truth, device=device)
         else:
             loss_mask = torch.zeros(1, device=device)
         
