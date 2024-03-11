@@ -17,10 +17,13 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument('--conf', type=str, help='Path to config file.')
 parser.add_argument('--base_exp_dir', type=str, default=None)
-parser.add_argument('--infer_mode', type=str, default='val')
-parser.add_argument('--novel_pose', type=str, default=None, help='Test specified novel pose, e.g. data/data_prepared/CoreView_392')
-parser.add_argument('--novel_view', type=int, default=-1, help='Test specified novel view, e.g. 1, 2, 3')
-parser.add_argument('--resolution_level', type=int, default=1, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
+parser.add_argument('--infer_mode', type=str, default='nvs', help='Inference mode, one of the following: [nvs, gup, odp]. `nvs` for novel \
+                    view synthesis on training poses, `gup` for generalation to unseen poses on novel view, `odp` for generalation to \
+                    out-of-distribution poses' )
+parser.add_argument('--novel_pose', type=str, default='data/data_prepared/CoreView_392', help='Test specified novel pose, e.g. data/data_prepared/CoreView_392')
+parser.add_argument('--novel_pose_view', type=int, default=0, help='Which view to use for novel pose, e.g. 0 for the first view.')
+parser.add_argument('--novel_pose_type', type=str, default='zju_mocap_odp', help='The type of novel pose, e.g. zju_mocap_odp, aistplusplus_odp, amass_odp, etc.')
+parser.add_argument('--resolution_level', type=int, default=4, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
 parser.add_argument('--gpus', type=list, default=[0,1], help='Test on multiple GPUs.')
 parser.add_argument('--num-workers', type=int, default=4,
                     help='Number of workers to use for val/test loaders.')
@@ -31,21 +34,29 @@ if  __name__ == '__main__':
     args = parser.parse_args()
     conf = ConfigFactory.parse_file(args.conf)
     num_workers = args.num_workers
-    split_mode = args.infer_mode
+    split_mode = 'val' if args.infer_mode in ['nvs', 'gup'] else 'test'
     conf['dataset']['res_level'] = args.resolution_level
-    conf['dataset'][f'{split_mode}_subsampling_rate'] = 1000
-    conf['dataset'][f'{split_mode}_start_frame'] = 400
-    conf['dataset'][f'{split_mode}_end_frame'] = -1
     
-    # Validation dataset for novel views
-    if args.novel_view != -1:
-        conf['dataset'][f'{split_mode}_views'] = [args.novel_view]
+    # validation for novel views synthesis on training poses
+    if args.infer_mode == 'nvs':
+        conf['dataset'][f'{split_mode}_subsampling_rate'] = 50
+        conf['dataset'][f'{split_mode}_start_frame'] = 0
+        conf['dataset'][f'{split_mode}_end_frame'] = 300
     
-    # Novel-pose synthesis on training view, we determine when novel_pose is on, the split mode should not be 'val'.
-    if split_mode != 'val' and args.novel_pose is not None:
-        conf['dataset']['dataset'] = "zju_mocap_odp"
-        conf['dataset']['new_pose_mode'] = "zjumocap"
-        conf['dataset']['new_pose_folder'] = args.novel_pose
+    # validation for generalation to unseen poses (teset poses) on novel view
+    elif args.infer_mode == 'gup':
+        conf['dataset'][f'{split_mode}_subsampling_rate'] = 50
+        conf['dataset'][f'{split_mode}_start_frame'] = 300
+        conf['dataset'][f'{split_mode}_end_frame'] = -1
+    
+    # validation for generalation to out-of-distribution poses
+    elif args.infer_mode == 'odp':
+        conf['dataset']['dataset'] = args.novel_pose_type
+        conf['dataset']['novel_pose_folder'] = args.novel_pose
+        conf['dataset'][f'{split_mode}_views'] = [args.novel_pose_view]
+        conf['dataset'][f'{split_mode}_subsampling_rate'] = 1
+        conf['dataset'][f'{split_mode}_start_frame'] = 0
+        conf['dataset'][f'{split_mode}_end_frame'] = -1
     
     dloader = DataLoader(
         module_config.get_dataset(split_mode, conf),
@@ -78,7 +89,7 @@ if  __name__ == '__main__':
                                     **kwargs)
 
     # Create PyTorch Lightning trainer
-    checkpoint_path = os.path.join(out_dir, 'checkpoints/epoch=469-step=140999.ckpt')
+    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/*.ckpt")))[0]
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')
 

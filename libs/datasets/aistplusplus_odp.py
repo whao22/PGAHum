@@ -7,6 +7,7 @@ from tqdm import tqdm
 import torch
 import torch.utils.data
 import trimesh
+from scipy.spatial.transform import Rotation
 
 from libs.utils.general_utils import rays_mesh_intersections_pcu, get_02v_bone_transforms, get_z_vals
 from libs.utils.images_utils import load_image
@@ -20,8 +21,28 @@ from libs.utils.camera_utils import \
     get_rays_from_KRT, \
     rays_intersect_3d_bbox
 
+def apply_global_tfm_to_camera_new(E, Rh, Th):
+    r""" Get camera extrinsics that considers global transformation.
 
-class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
+    Args:
+        - E: Array (3, 3)
+        - Rh: Array (3, )
+        - Th: Array (3, )
+        
+    Returns:
+        - Array (3, 3)
+    """
+
+    global_tfms = np.eye(4)  #(4, 4)
+    global_rot = cv2.Rodrigues(Rh)[0].T
+    global_rot = global_rot @ Rotation.from_euler('xyz', [90, 180, 0], degrees=True).as_matrix()
+    # global_rot = global_rot @ np.array([[0,0,1],[1,0,0],[0,1,0]])
+    global_trans = Th
+    global_tfms[:3, :3] = global_rot
+    global_tfms[:3, 3] = -global_rot.dot(global_trans)
+    return E.dot(np.linalg.inv(global_tfms))
+
+class AISTPlusPlusDataset_ODP(torch.utils.data.Dataset):
     def __init__(self,
                  dataset_folder='',
                  subjects=['CoreView_313'],
@@ -57,15 +78,28 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
         self.novel_pose_folder = novel_pose_folder
         
         self.dataset_path = os.path.join(dataset_folder, subjects[0])
-        self.camera_info_dir = os.path.join(self.dataset_path, views[0])
+        
+        # motion
+        _, filename =os.path.split(self.novel_pose_folder)
+        motion_name = filename.split('.')[0]
         
         # load data
         self.canonical_joints, self.canonical_bbox = \
             self.load_canonical_joints()
         self.cnl_gtfms = get_canonical_global_tfms(self.canonical_joints) # (24, 4, 4)
         self.gtfs_02v = get_02v_bone_transforms(self.canonical_joints)
-        self.cameras = self.load_train_cameras()
-        self.mesh_infos, self.framelist = self.load_new_mesh_infos()
+        
+        
+        if not os.path.exists(os.path.join(self.dataset_path, motion_name, 'mesh_infos.pkl')):
+            self.construct_motion_data(self.dataset_path, self.novel_pose_folder, motion_name)
+        else:
+            self.mesh_infos, self.framelist = self.load_new_mesh_infos(os.path.join(self.dataset_path, motion_name, 'mesh_infos.pkl'))
+            
+        if not os.path.exists(os.path.join(self.dataset_path, motion_name, 'cameras.pkl')):
+            self.cameras = self.construct_camera_data(self.dataset_path, motion_name, views[0], self.framelist)
+        else:
+            self.cameras = self.load_train_cameras(os.path.join(self.dataset_path, motion_name, 'cameras.pkl'))
+        
         self.framelist = self.framelist[start_frame:end_frame:sampling_rate]
         
         self.faces = np.load('data/body_models/misc/faces.npz')['faces']
@@ -75,7 +109,85 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
         self.smpl_sdf = np.load(os.path.join(self.dataset_path, 'smpl_sdf.npy'), allow_pickle=True).item()
         
         logging.info(f'[Dataset Path]: {self.dataset_path} / {self.mode}. -- Total Frames: {self.__len__()}')
+    
+    def construct_camera_data(self, dataset_path, motion_name, view, framelist):
+        subject_camera_info_dir = os.path.join(self.dataset_path, view)
+        with open(os.path.join(subject_camera_info_dir, 'cameras.pkl'), 'rb') as f: 
+            cameras_data = pickle.load(f)
         
+        cameras_info = {}
+        for frame in tqdm(framelist, desc='Camera Data'):
+            cameras_info[frame] = cameras_data['frame_000000']
+        
+        # write mesh infos
+        output_path = os.path.join(dataset_path, motion_name)
+        os.makedirs(output_path, exist_ok=True)
+        with open(os.path.join(output_path, 'cameras.pkl'), 'wb') as f:
+            pickle.dump(cameras_info, f)
+        return cameras_info
+        
+    def construct_motion_data(self, dataset_path, novel_pose_folder, motion_name):
+        from tools.smpl.smpl_numpy import SMPL
+        import mcubes
+        from libs.utils.geometry_utils import prepare_smpl_sdf
+        smpl_model = SMPL(sex='neutral', model_dir="data/body_models/smpl")
+        
+        with open(novel_pose_folder, 'rb') as f: 
+            motion_data = pickle.load(f)
+        smpl_poses = motion_data['smpl_poses']
+        smpl_trans = motion_data['smpl_trans']
+        motion_nframe = len(smpl_poses)
+        
+        with open(os.path.join(dataset_path, 'mesh_infos.pkl'), 'rb') as f: 
+            mesh_infos = pickle.load(f)
+        betas = mesh_infos['frame_000000']['beats']
+        mesh_infos = {}
+        framelist = []
+        
+        print("Process Mesh info ... ")
+        for idx in tqdm(range(motion_nframe), desc='Novel Motion'):
+            poses = smpl_poses[idx].copy()
+            poses[:3] = 0.
+            Rh = smpl_poses[idx].copy()[:3]
+            Th = smpl_trans[idx]
+
+            # write mesh info
+            posed_vertices, joints = smpl_model(poses, betas)
+            
+            # dilate mesh
+            sdf_resolution = 64
+            delta_sdf = 0.03
+            posed_sdf_dict = prepare_smpl_sdf(posed_vertices, sdf_resolution)
+            posed_sdf_grid = posed_sdf_dict['sdf_grid'] - delta_sdf
+            posed_bbmax = posed_sdf_dict['bbmax']
+            posed_bbmin = posed_sdf_dict['bbmin']
+            
+            dilated_vertices, dilated_triangles = mcubes.marching_cubes(posed_sdf_grid, 0.)    
+            dilated_vertices = dilated_vertices / sdf_resolution * (posed_bbmax - posed_bbmin) + posed_bbmin
+
+            frame_name = f'frame_{idx:06d}'
+            framelist.append(frame_name)
+            bbox = self.vertices_to_bbox(dilated_vertices)
+            mesh_infos[frame_name] = {
+                'Rh': Rh,
+                'Th': Th,
+                'poses': poses,
+                'beats': betas,
+                'posed_vertices': posed_vertices, 
+                'joints': joints,
+                'dilated_triangles': dilated_triangles,
+                'dilated_vertices': dilated_vertices,
+                'bbox': bbox
+            }
+        
+        # write mesh infos
+        output_path = os.path.join(dataset_path, motion_name)
+        os.makedirs(output_path, exist_ok=True)
+        with open(os.path.join(output_path, 'mesh_infos.pkl'), 'wb') as f:
+            pickle.dump(mesh_infos, f)
+
+        return mesh_infos, framelist
+    
     def load_canonical_joints(self):
         cl_joint_path = os.path.join(self.dataset_path, 'canonical_joints.pkl')
         with open(cl_joint_path, 'rb') as f:
@@ -87,9 +199,9 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
 
         return canonical_joints, canonical_bbox
 
-    def load_train_cameras(self):
+    def load_train_cameras(self, camera_info_dir):
         cameras = None
-        with open(os.path.join(self.camera_info_dir, 'cameras.pkl'), 'rb') as f: 
+        with open(camera_info_dir, 'rb') as f: 
             cameras = pickle.load(f)
         return cameras
 
@@ -111,9 +223,9 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
             'max_xyz': max_xyz
         }
 
-    def load_new_mesh_infos(self):
+    def load_new_mesh_infos(self, mesh_info_path):
         mesh_infos = None
-        with open(os.path.join(self.novel_pose_folder, 'mesh_infos.pkl'), 'rb') as f: 
+        with open(mesh_info_path, 'rb') as f: 
             mesh_infos = pickle.load(f)      
         
         framelist = []
@@ -128,12 +240,15 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
     def query_dst_skeleton(self, frame_name):
         return {
             'poses': self.mesh_infos[frame_name]['poses'].astype('float32'),
-            'dst_tpose_joints': \
-                self.canonical_joints.astype('float32'),
+            # 'dst_tpose_joints': \
+            #     self.mesh_infos[frame_name]['tpose_joints'].astype('float32'),
+            'dst_tpose_joints': self.canonical_joints.astype('float32'),
             'bbox': self.mesh_infos[frame_name]['bbox'].copy(),
             'Rh': self.mesh_infos[frame_name]['Rh'].astype('float32'),
             'Th': self.mesh_infos[frame_name]['Th'].astype('float32'),
-            'posed_vertices': self.mesh_infos[frame_name]['posed_vertices'].astype('float32')
+            'posed_vertices': self.mesh_infos[frame_name]['posed_vertices'].astype('float32'),
+            'dilated_vertices': self.mesh_infos[frame_name]['dilated_vertices'].astype('float32'),
+            'dilated_triangles': self.mesh_infos[frame_name]['dilated_triangles'].copy(),
         }
 
     def sample_image_rays(self, res_level, rays_o, rays_d, near, far):
@@ -158,22 +273,27 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
         dst_Rs, dst_Ts = body_pose_to_body_RTs(dst_poses, dst_tpose_joints) # (24, 3, 3) (24, 3)
         
         # calculate K, E, T
-        assert frame_name in self.cameras
+        # assert frame_name in self.cameras
         K = self.cameras[frame_name]['intrinsics'][:3, :3].copy()
         K[:2] *= self.resize_img_scale
         E = self.cameras[frame_name]['extrinsics'].astype(np.float32)
-        E = apply_global_tfm_to_camera(
+        E = apply_global_tfm_to_camera_new(
                 E=E,
                 Rh=dst_skel_info['Rh'],
-                Th=dst_skel_info['Th'])
+                Th=dst_skel_info['Th']/93 + np.array([0.3,-1.5,-1.2])
+        )
         R = E[:3, :3]
         T = E[:3, 3]
 
-        # calculate rays in world coordinate from pixel/image coordinate 
+        # calculate rays in world coordinate from pixel/image coordinate
         rays_o, rays_d = get_rays_from_KRT(H, W, K, R, T) # (H, W, 3)
 
         # calculate rays and near & far which intersect with cononical space bbox
         near_, far_, rays_mask = rays_intersect_3d_bbox(dst_bbox, rays_o.reshape(-1, 3), rays_d.reshape(-1, 3))
+        # # for debug
+        aa = rays_mask.reshape(1024, 1024)
+        cv2.imwrite(f"aa.jpg", aa.astype(np.uint8)*255)
+
         near = np.ones(H*W) * near_.mean()
         near[rays_mask] = near_
         far = np.ones(H*W) * far_.mean()

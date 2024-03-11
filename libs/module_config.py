@@ -1,7 +1,9 @@
+import os
 import torch
 from collections import OrderedDict
 
 from libs.datasets.zjumocap_odp import ZJUMoCapDataset_ODP
+from libs.datasets.aistplusplus_odp import AISTPlusPlusDataset_ODP
 from libs.datasets.zjumocap_mvs import ZJUMoCapDataset_MVS
 from libs.datasets.people_snapshot import PeopleSnapshotDataset
 from libs.datasets.selfrecon_synthesis import SelfreconSynthesisDataset
@@ -242,13 +244,32 @@ def get_dataset(mode, cfg, view_split=None, subsampling_rate=None, start_frame=N
             use_inter_mask=use_inter_mask,
         )
     elif dataset_type == 'zju_mocap_odp':
-        new_pose_mode = cfg.dataset.new_pose_mode
-        new_pose_folder = cfg.dataset.new_pose_folder
+        novel_pose_folder = cfg.dataset.novel_pose_folder
         dataset = ZJUMoCapDataset_ODP(
             dataset_folder=dataset_folder,
             subjects=split,
-            new_pose_mode=new_pose_mode,
-            new_pose_folder=new_pose_folder,
+            novel_pose_folder=novel_pose_folder,
+            mode=mode,
+            resize_img_scale=resize_img_scale,
+            start_frame=start_frame,
+            end_frame=end_frame,
+            sampling_rate=subsampling_rate,
+            views=view_split,
+            box_margin=box_margin,
+            ray_shoot_mode=ray_shoot_mode,
+            backgroung_color=backgroung_color,
+            N_samples=N_samples,
+            inner_sampling=inner_sampling,
+            res_level=res_level,
+            use_dilated=use_dilated,
+            use_inter_mask=use_inter_mask,
+        )
+    elif dataset_type == 'aistplusplus_odp':
+        novel_pose_folder = cfg.dataset.novel_pose_folder
+        dataset = AISTPlusPlusDataset_ODP(
+            dataset_folder=dataset_folder,
+            subjects=split,
+            novel_pose_folder=novel_pose_folder,
             mode=mode,
             resize_img_scale=resize_img_scale,
             start_frame=start_frame,

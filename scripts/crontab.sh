@@ -2,7 +2,9 @@ cd /home/wangyubo/WORKSPACE/wanghao/hf-avatar/
 
 user_comment='mono_1_1_3_true'
 exp_comment=`date +%s`
-run_name="CoreView_male-4-casual_${exp_comment}_run_${user_comment}"
+# run_name="CoreView_male-4-casual_${exp_comment}_run_${user_comment}"
+run_name="CoreView_male-4-casual_1709841604_run_mono_1_1_3_true"
+
 base_exp_dir="exp/${run_name}"
 conf="confs/hfavatar-people_snapshot/PeopleSnapshot-male-4-casual-mono-4gpus.conf"
 log_name="CoreView_male-4-casual_${exp_comment}_run.log"

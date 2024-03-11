@@ -4,6 +4,7 @@ borrowed from NeuS.
 import mcubes
 import torch
 import numpy as np
+import mesh2sdf
 from libs.utils.general_utils import sample_sdf_from_grid
 
 def compute_gradient(y, x, grad_outputs=None, retain_graph=True, create_graph=True):
@@ -61,3 +62,23 @@ def extract_geometry(bound_min, bound_max, resolution, threshold, sdf_network, s
 
     vertices = vertices / (resolution - 1.0) * (b_max_np - b_min_np)[None, :] + b_min_np[None, :]
     return vertices, triangles
+
+def prepare_smpl_sdf(vertices, volume_size):
+    PADDING = 0.05
+    faces = np.load('data/body_models/misc/faces.npz')['faces']
+
+    maxv = abs(vertices).max()
+    bbmax = maxv + PADDING
+    bbmin = -maxv - PADDING
+
+    vertices_norm = (vertices - bbmin) / (bbmax - bbmin + 1e-10)
+    vertices_norm = (vertices_norm - 0.5) * 2
+    sdf_grid = mesh2sdf.compute(vertices_norm, faces, size=volume_size)
+
+    smpl_sdf={
+        "sdf_grid": sdf_grid,
+        "bbmax": bbmax,
+        "bbmin": bbmin,
+    }
+    return smpl_sdf
+
