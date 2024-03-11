@@ -113,10 +113,10 @@ class IDHRLoss(nn.Module):
     def get_mask_loss(self, model_outputs, ground_truth, device):
         normals = model_outputs['gradients'] * model_outputs['weights'][..., None]
         normals = normals.sum(1)
-        # E = ground_truth['E'].unsqueeze(0)
+        # E = ground_truth['extrinsic'].squeeze(0).float()
         # rot = torch.inverse(E[:3, :3])
         # normals = (torch.matmul(rot[None, ...], normals[..., None])[..., 0] * 128 + 128).clip(0, 255)
-        normals_mask = (normals.sum(-1) > 0).float()
+        normals_mask = (normals > 128).sum(-1).float()
         fg_mask = ground_truth['batch_rays'][..., 9:10][0]
         fg_mask = fg_mask.reshape(normals_mask.shape)
         
