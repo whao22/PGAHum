@@ -111,6 +111,7 @@ class IDHRLoss(nn.Module):
         return torch.abs(pts_w_pre - pts_w_gt).sum(-1).mean()
 
     def get_mask_loss(self, model_outputs, ground_truth, device):
+        """ Discarded """
         normals = model_outputs['gradients'] * model_outputs['weights'][..., None]
         normals = normals.sum(1)
         E = ground_truth['extrinsic'].squeeze(0).float()
