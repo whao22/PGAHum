@@ -9,7 +9,7 @@ from libs.utils.metrics.metrics import psnr_metric
 from libs.utils.metrics.pytorch_ssim import ssim as ssim_func
 
 
-image_dir = 'exp/images_wo_normal'
+image_dir = 'exp/CoreView_male-4-casual_1709841604_run_mono_1_1_3_true/wandb/run-20240311_210758-826z60oq/images'
 
 image_list = sorted(glob(os.path.join(image_dir, '*.png')))
 order = 0

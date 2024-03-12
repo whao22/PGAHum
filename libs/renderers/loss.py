@@ -116,7 +116,7 @@ class IDHRLoss(nn.Module):
         E = ground_truth['extrinsic'].squeeze(0).float()
         rot = torch.inverse(E[:3, :3])
         normals = (torch.matmul(rot[None, ...], normals[..., None])[..., 0] * 128 + 128).clip(0, 255)
-        normals_mask = (normals > 128).sum(-1).float()
+        normals_mask = (normals - 128).abs().sum(-1).clip(0, 1)
         fg_mask = ground_truth['batch_rays'][..., 9:10][0]
         fg_mask = fg_mask.reshape(normals_mask.shape)
         
