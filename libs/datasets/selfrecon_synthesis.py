@@ -259,7 +259,7 @@ class SelfreconSynthesisDataset(torch.utils.data.Dataset):
         # calculate rays and near & far which intersect with cononical space bbox
         near_, far_, rays_mask = rays_intersect_3d_bbox(dst_bbox, rays_o.reshape(-1, 3), rays_d.reshape(-1, 3))
         # # for debug
-        # aa = rays_mask.reshape(1080, 1080)
+        # aa = rays_mask.reshape(1024, 1024)
         # cv2.imwrite("aa.jpg", aa.astype(np.uint8)*255)
         # cv2.imwrite("bb.jpg", image*255)
         
@@ -318,8 +318,16 @@ class SelfreconSynthesisDataset(torch.utils.data.Dataset):
             else:
                 z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces, self.N_samples)
             
+            # # for debug
+            # imask = inter_mask.reshape(256, 256)
+            # rimg = rays_img.reshape(256,256, 3)
+            # imask = np.logical_not(imask)
+            # rimg[imask] = 0
+            # cv2.imwrite("cc.jpg", rimg*255)
+            # cv2.imwrite("dd.jpg", imask*255)
+            
             results['z_vals'] = z_vals.astype(np.float32)
-            results['hit_mask'] = inter_mask
+            results['hit_mask'] = np.logical_or(inter_mask, rays_alpha.reshape(-1).astype(np.bool_))
         else:
             t_vals = np.linspace(0.0, 1.0, self.N_samples)
             z_vals = near + (far - near) * t_vals[None, :]
@@ -455,7 +463,7 @@ class SelfreconSynthesisDataset(torch.utils.data.Dataset):
                 z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces, self.N_samples)
             
             results['z_vals'] = z_vals.astype(np.float32)
-            results['hit_mask'] = inter_mask
+            results['hit_mask'] = np.logical_or(inter_mask, rays_alpha.reshape(-1).astype(np.bool_))
         else:
             t_vals = np.linspace(0.0, 1.0, self.N_samples)
             z_vals = near + (far - near) * t_vals[None, :]

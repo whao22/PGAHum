@@ -48,10 +48,10 @@ if __name__ == '__main__':
         num_workers=conf.train.num_workers,
         shuffle=False)
     # for i in train_dloader:
-    #     print(i)
+    #     print()
     
     # for i in val_dloader:
-    #     print(i)
+    #     print()
     
     
     # Model
