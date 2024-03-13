@@ -226,9 +226,13 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
                 z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dilated_vertices, dilated_triangles, self.N_samples)
             else:
                 z_vals, inter_mask = get_z_vals(near, far, rays_o, rays_d, dst_vertices, self.faces, self.N_samples)
-            
             results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = inter_mask
+        else:
+            t_vals = np.linspace(0.0, 1.0, self.N_samples)
+            z_vals = near + (far - near) * t_vals[None, :]
+            results['z_vals'] = z_vals.astype(np.float32)
+            results['hit_mask'] = np.ones(len(z_vals)).astype(np.bool_)
             
         return results
 

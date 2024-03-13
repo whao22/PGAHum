@@ -349,6 +349,11 @@ class AISTPlusPlusDataset_ODP(torch.utils.data.Dataset):
             
             results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = inter_mask
+        else:
+            t_vals = np.linspace(0.0, 1.0, self.N_samples)
+            z_vals = near + (far - near) * t_vals[None, :]
+            results['z_vals'] = z_vals.astype(np.float32)
+            results['hit_mask'] = np.ones(len(z_vals)).astype(np.bool_)
             
         return results
 

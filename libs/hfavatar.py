@@ -204,9 +204,8 @@ class HFAvatar(pl.LightningModule):
             for batch_rays, z_vals, hit_mask in zip(batch_rays_list, z_vals_list, hit_mask_list):
                 data_batch = data.copy()
                 data_batch['batch_rays'] = batch_rays
-                if self.inner_sampling:
-                    data_batch['z_vals'] = z_vals
-                    data_batch['hit_mask'] = hit_mask
+                data_batch['z_vals'] = z_vals
+                data_batch['hit_mask'] = hit_mask
                 
                 render_out = self.renderer.render(data_batch, 
                                                     self.global_step, 
@@ -268,9 +267,8 @@ class HFAvatar(pl.LightningModule):
             for batch_rays, z_vals, hit_mask in zip(batch_rays_list, z_vals_list, hit_mask_list):
                 data_batch = data.copy()
                 data_batch['batch_rays'] = batch_rays
-                if self.inner_sampling:
-                    data_batch['z_vals'] = z_vals
-                    data_batch['hit_mask'] = hit_mask
+                data_batch['z_vals'] = z_vals
+                data_batch['hit_mask'] = hit_mask
                 
                 render_out = self.renderer.render(data_batch, 
                                                     self.global_step, 

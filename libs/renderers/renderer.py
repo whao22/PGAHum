@@ -84,7 +84,7 @@ class IDHRenderer:
         
         norm = torch.norm(dirs, p=2, dim=-1, keepdim=True)
         dirs = dirs / (norm + 1e-12)
-        return -dirs
+        return dirs
 
     def deform_dirs(self, ray_dirs, points_cnl, transforms_bwd): ## TODO confirm whether the implement is right or not.
         N_rays, N_samples, _ = points_cnl.shape
@@ -268,15 +268,11 @@ class IDHRenderer:
         self.iter_step = iter_step
         # unpack data
         ## rays
-        batch_rays = data['batch_rays'].squeeze() # (N_rays, 12)
+        batch_rays = data['batch_rays'].squeeze(0) # (N_rays, 12)
         rays_o = batch_rays[..., 0:3] # (N_rays, 3)
         rays_d = batch_rays[..., 3:6] # (N_rays, 3)
-        if self.inner_sampling:
-            z_vals = data['z_vals'].squeeze() # (N_rays, N_samples)
-            near, far = z_vals[:, :1], z_vals[:, -1:]
-        else:
-            near = batch_rays[..., 10:11] # (N_rays, 3)
-            far = batch_rays[..., 11:12] # (N_rays, 3)
+        z_vals = data['z_vals'].squeeze(0) # (N_rays, N_samples)
+        near, far = z_vals[:, :1], z_vals[:, -1:]
 
         ## motion
         tjoints = data['tjoints'] # (batch_size, 24, 3)
@@ -291,11 +287,11 @@ class IDHRenderer:
         cnl_bbmax = data['smpl_sdf']['bbmax']
         cnl_grid_sdf = data['smpl_sdf']['sdf_grid']
         ## render
-        background_color = data['background_color'][0] # (3)
+        background_color = data['background_color'].squeeze(0) # (3)
         
         N_rays, _ = batch_rays.shape
         N_outside = self.n_outside
-        N_samples = z_vals.size(-1) if self.inner_sampling else self.n_samples
+        N_samples = z_vals.size(-1)
 
         # dst_gtfms (batch_size, 24, 4, 4)
         dst_gtfms, pose_refine_error = self.get_dst_gtfms(dst_Rs, dst_Ts, dst_posevec, cnl_gtfms, tjoints, gtfs_02v)
@@ -330,23 +326,24 @@ class IDHRenderer:
             points_newa = torch.matmul(transforms_bwd, points_homo)[:, :, :3, 0]
             trimesh.Trimesh(points_newa[0].detach().cpu().numpy()).export("tvpose_vertices_from_tpose.obj")
         
-        if self.inner_sampling:
-            if False:
-                # additionally sample more points in rays
-                N_extra = N_samples // 8
-                z_vals_dist = (z_vals[:,-1:] - z_vals[:, :1])/(N_samples-1) # (N_rays, 1)
-                extra_z_vals_near = torch.tile(-z_vals_dist, [1, N_extra])
-                extra_z_vals_near = torch.cumsum(extra_z_vals_near, dim=-1).flip(dims=[-1]) + z_vals[:, :1] # (N_rays, N_extra)
-                extra_z_vals_far = torch.tile(z_vals_dist, [1, N_extra])
-                extra_z_vals_far = torch.cumsum(extra_z_vals_far, dim=-1) + z_vals[:, -1:] # (N_rays, N_extra)
-                z_vals = torch.concat([extra_z_vals_near, z_vals, extra_z_vals_far], dim=-1) # (N_rays, N_samples + 2*N_extra)
-                self.n_samples = N_samples + 2 * N_extra
-                N_samples = self.n_samples
-        else:
-            # calculate depth in rays
-            z_vals = torch.linspace(0.0, 1.0, N_samples).to(near)
-            z_vals = near + (far - near) * z_vals[None, :] # (batch_size, n_samples)
-        
+        if False:
+            if self.inner_sampling:
+                if False:
+                    # additionally sample more points in rays
+                    N_extra = N_samples // 8
+                    z_vals_dist = (z_vals[:,-1:] - z_vals[:, :1])/(N_samples-1) # (N_rays, 1)
+                    extra_z_vals_near = torch.tile(-z_vals_dist, [1, N_extra])
+                    extra_z_vals_near = torch.cumsum(extra_z_vals_near, dim=-1).flip(dims=[-1]) + z_vals[:, :1] # (N_rays, N_extra)
+                    extra_z_vals_far = torch.tile(z_vals_dist, [1, N_extra])
+                    extra_z_vals_far = torch.cumsum(extra_z_vals_far, dim=-1) + z_vals[:, -1:] # (N_rays, N_extra)
+                    z_vals = torch.concat([extra_z_vals_near, z_vals, extra_z_vals_far], dim=-1) # (N_rays, N_samples + 2*N_extra)
+                    self.n_samples = N_samples + 2 * N_extra
+                    N_samples = self.n_samples
+            else:
+                # calculate depth in rays
+                z_vals = torch.linspace(0.0, 1.0, N_samples).to(near)
+                z_vals = near + (far - near) * z_vals[None, :] # (batch_size, n_samples)
+            
         if N_outside > 0:
             z_vals_outside = torch.linspace(1e-3, 1.0 - 1.0 / (N_outside + 1.0), N_outside).to(near) # (N_outside, )
         
