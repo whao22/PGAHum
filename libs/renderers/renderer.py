@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 import pytorch3d.ops as ops
 from libs.embeders.hannw_fourier import get_embedder
-from libs.utils.FastMinv.fast_matrix_inv import FastDiff4x4MinvFunction
+# from libs.utils.FastMinv.fast_matrix_inv import FastDiff4x4MinvFunction
 from libs.utils.general_utils import normalize_canonical_points, hierarchical_softmax, sample_sdf, sample_sdf_from_grid
 from libs.utils.geometry_utils import compute_gradient
 
