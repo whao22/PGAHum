@@ -17,7 +17,7 @@ gpustat
 ################################################################
 ##################### CUSTOM SCRIPTS START #####################
 
-user_comment='mvs_1_1_3_false_woinner'
+user_comment='mvs_1_1_3_true_woinner'
 exp_comment=`date +%s`
 run_name="CoreView_377_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
