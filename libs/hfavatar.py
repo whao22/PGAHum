@@ -312,7 +312,7 @@ class HFAvatar(pl.LightningModule):
                 image_pred_ = image_pred[y:y+h, x:x+w] / 255
                 image_targ_ = image_targ[y:y+h, x:x+w] / 255
                 
-                psnr = mse2psnr(F.mse_loss(image_pred_, image_targ_).item())
+                psnr = mse2psnr(F.mse_loss(image_pred_, image_targ_).item()) # 27；31
                 ssim = pytorch_ssim.ssim(image_pred_.permute(2, 0, 1).unsqueeze(0), image_targ_.permute(2, 0, 1).unsqueeze(0)).item()
                 lpips = self.lpips(image_pred_.permute(2, 0, 1).unsqueeze(0), image_targ_.permute(2, 0, 1).unsqueeze(0)).item()
                 metrics_dict.update({
