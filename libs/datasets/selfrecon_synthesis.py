@@ -249,7 +249,7 @@ class SelfreconSynthesisDataset(torch.utils.data.Dataset):
         E = apply_global_tfm_to_camera(
                 E=E,
                 Rh=dst_skel_info['Rh'],
-                Th=dst_skel_info['Th']+np.array([-0.05,-0.4,0])) # TODO: [0,-0.5,0] gained by experience
+                Th=dst_skel_info['Th']+np.array([0,-0.4,0])) # TODO: [0,-0.5,0] gained by experience
         R = E[:3, :3]
         T = E[:3, 3:]
 
@@ -363,7 +363,7 @@ class SelfreconSynthesisDataset(torch.utils.data.Dataset):
         E = apply_global_tfm_to_camera(
                 E=E,
                 Rh=dst_skel_info['Rh'],
-                Th=dst_skel_info['Th']+np.array([-0.05,-0.4,0])) # TODO: [0,-0.5,0] gained by experience
+                Th=dst_skel_info['Th']+np.array([0,-0.4,0])) # TODO: [0,-0.5,0] gained by experience
         R = E[:3, :3]
         T = E[:3, 3:]
 
