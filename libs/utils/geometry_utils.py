@@ -3,6 +3,7 @@ borrowed from NeuS.
 '''
 import mcubes
 import torch
+from tqdm import tqdm
 import numpy as np
 import mesh2sdf
 from libs.utils.general_utils import sample_sdf_from_grid
@@ -36,7 +37,7 @@ def lambda_sdf(points, sdf_network, sdf_kwargs, use_init_sdf=True, scale=1):
         
     return sdf
 
-def extract_fields(bound_min, bound_max, resolution, sdf_network, sdf_kwargs, scale, device):
+def extract_fields(bound_min, bound_max, resolution, hfavatar, sdf_kwargs, deform_kwargs, scale, device):
     N = 64
     X = torch.linspace(bound_min[0], bound_max[0], resolution).to(device).split(N)
     Y = torch.linspace(bound_min[1], bound_max[1], resolution).to(device).split(N)
@@ -44,18 +45,19 @@ def extract_fields(bound_min, bound_max, resolution, sdf_network, sdf_kwargs, sc
 
     u = np.zeros([resolution, resolution, resolution], dtype=np.float32)
     with torch.no_grad():
-        for xi, xs in enumerate(X):
+        for xi, xs in tqdm(enumerate(X)):
             for yi, ys in enumerate(Y):
                 for zi, zs in enumerate(Z):
                     xx, yy, zz = torch.meshgrid(xs, ys, zs)
                     points = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)
-                    val = lambda_sdf(points, sdf_network, sdf_kwargs, scale).reshape(len(xs), len(ys), len(zs)).detach().cpu().numpy()
+                    points = hfavatar.renderer.deform_points(points[None], **deform_kwargs)[0].reshape(-1, 3)
+                    val = lambda_sdf(points, hfavatar.sdf_network, sdf_kwargs, scale).reshape(len(xs), len(ys), len(zs)).detach().cpu().numpy()
                     u[xi * N: xi * N + len(xs), yi * N: yi * N + len(ys), zi * N: zi * N + len(zs)] = val
     return u
 
-def extract_geometry(bound_min, bound_max, resolution, threshold, sdf_network, sdf_kwargs, scale=1, device="cpu"):
+def extract_geometry(bound_min, bound_max, resolution, threshold, hfavatar, sdf_kwargs, deform_kwargs, scale=1, device="cpu"):
     print('threshold: {}'.format(threshold))
-    u = extract_fields(bound_min, bound_max, resolution, sdf_network, sdf_kwargs, scale, device)
+    u = extract_fields(bound_min, bound_max, resolution, hfavatar, sdf_kwargs, deform_kwargs, scale, device)
     vertices, triangles = mcubes.marching_cubes(u, threshold)
     b_max_np = bound_max.detach().cpu().numpy()
     b_min_np = bound_min.detach().cpu().numpy()

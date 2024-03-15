@@ -454,7 +454,7 @@ class IDHRenderer:
         """deform the points in observation space into cononical space via Itertative Backward Deformation.
 
         Args:
-            points_obs (tensor): (N, 3)
+            points_obs (tensor): (1, N, 3)
             dst_posevec (tensor, optional): pose vector. Defaults to None.
             dst_gtfms (tensor, optional): bone transforms. Defaults to None.
         Returns:
