@@ -139,7 +139,8 @@ class SelfreconSynthesisDataset(torch.utils.data.Dataset):
 
         for frame_name in mesh_infos.keys():
             # bbox = self.skeleton_to_bbox(mesh_infos[frame_name]['joints'])
-            bbox = self.skeleton_to_bbox(mesh_infos[frame_name]['posed_vertices'])
+            # bbox = self.skeleton_to_bbox(mesh_infos[frame_name]['posed_vertices'])
+            bbox = self.skeleton_to_bbox(mesh_infos[frame_name]['dilated_vertices'])
             mesh_infos[frame_name]['bbox'] = bbox
 
         return mesh_infos
