@@ -41,8 +41,6 @@ for i in range(len(image_list)//2):
     img1 = cv2.imread(img1_path)/255
     img2 = cv2.imread(img2_path)/255
     
-
-    
     psnr = psnr_metric(img1, img2)
     psnr_list.append(psnr)
     

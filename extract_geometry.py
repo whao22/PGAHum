@@ -11,8 +11,8 @@ from libs.utils.geometry_utils import extract_geometry
 
 # Arguments
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
-parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zju/ZJUMOCAP-377-mono-4gpus.conf")
-parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_377_1709621919_slurm_mvs_1_1_1_true")
+parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-selfrecon_synthesis/SelfreconSynthesis-male-outfit2-mono-4gpus.conf")
+parser.add_argument('--base_exp_dir', type=str, default="exp/Selfrecon_1710477057_slurm_mono_1_1_3_true")
 parser.add_argument('--frames', type=list, default=[0], help='List of frames to extract geometry.')
 parser.add_argument('--resolution', type=int, default=256)
 parser.add_argument('--mcthreshold', type=float, default=0.0)
