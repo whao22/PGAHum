@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=male-3-casual
+#SBATCH --job-name=male-4-casual
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=71
