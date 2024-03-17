@@ -17,14 +17,14 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument('--conf', type=str, help='Path to config file.')
 parser.add_argument('--base_exp_dir', type=str, default=None)
-parser.add_argument('--infer_mode', type=str, default='nvs', help='Inference mode, one of the following: [nvs, gup, odp]. `nvs` for novel \
-                    view synthesis on training poses, `gup` for generalation to unseen poses on novel view, `odp` for generalation to \
+parser.add_argument('--infer_mode', type=str, default='nvs', help='Inference mode, one of the following: [nvs, unseen, odp]. `nvs` for novel \
+                    view synthesis on training poses, `unseen` for generalation to unseen poses on novel view, `odp` for generalation to \
                     out-of-distribution poses' )
 parser.add_argument('--novel_pose', type=str, default='data/data_prepared/CoreView_392', help='Test specified novel pose, e.g. data/data_prepared/CoreView_392')
 parser.add_argument('--novel_pose_view', type=int, default=0, help='Which view to use for novel pose, e.g. 0 for the first view.')
 parser.add_argument('--novel_pose_type', type=str, default='zju_mocap_odp', help='The type of novel pose, e.g. zju_mocap_odp, aistplusplus_odp, amass_odp, etc.')
 parser.add_argument('--resolution_level', type=int, default=2, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
-parser.add_argument('--gpus', type=list, default=[2,3], help='Test on multiple GPUs.')
+parser.add_argument('--gpus', type=list, default=[0,1], help='Test on multiple GPUs.')
 parser.add_argument('--num-workers', type=int, default=4,
                     help='Number of workers to use for val/test loaders.')
 parser.add_argument('--run-name', type=str, default='',
@@ -34,7 +34,7 @@ if  __name__ == '__main__':
     args = parser.parse_args()
     conf = ConfigFactory.parse_file(args.conf)
     num_workers = args.num_workers
-    split_mode = 'val' if args.infer_mode in ['nvs', 'gup'] else 'test'
+    split_mode = 'val' if args.infer_mode in ['nvs', 'unseen'] else 'test'
     conf['dataset']['res_level'] = args.resolution_level
     
     # validation for novel views synthesis on training poses
@@ -44,8 +44,8 @@ if  __name__ == '__main__':
         conf['dataset'][f'{split_mode}_end_frame'] = 300
     
     # validation for generalation to unseen poses (teset poses) on novel view
-    elif args.infer_mode == 'gup':
-        conf['dataset'][f'{split_mode}_subsampling_rate'] = 100
+    elif args.infer_mode == 'unseen':
+        conf['dataset'][f'{split_mode}_subsampling_rate'] = 20
         conf['dataset'][f'{split_mode}_start_frame'] = 300
         conf['dataset'][f'{split_mode}_end_frame'] = -1
     

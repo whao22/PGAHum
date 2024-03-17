@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=hf
+#SBATCH --job-name=393
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=71
@@ -19,9 +19,9 @@ gpustat
 
 user_comment='mvs_1_1_3_true_woinner'
 exp_comment=`date +%s`
-run_name="CoreView_377_${exp_comment}_slurm_${user_comment}"
+run_name="CoreView_393_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
-conf="confs/hfavatar-zju/ZJUMOCAP-377-4gpus.conf"
+conf="confs/hfavatar-zju/ZJUMOCAP-393-4gpus.conf"
 echo The base experiment directory is ${base_exp_dir}.
 
 python train.py \
