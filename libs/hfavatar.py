@@ -330,6 +330,12 @@ class HFAvatar(pl.LightningModule):
             
             normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
             if len(out_normal_fine) > 0:
+                if False:
+                    normal_img = torch.cat(out_normal_fine, dim=0)
+                    normal_img = normal_img / (torch.norm(normal_img, dim=-1, keepdim=True) + 1e-8)
+                    normal_img = (normal_img + 1) / 2
+                    normal_img[..., 1:] = normal_img[..., 1:] * -1
+                    cv2.imwrite('normal.png', (normal_img.reshape(256, 256, 3).cpu().numpy() * 255).astype(np.uint8))
                 normal_img = torch.cat(out_normal_fine, dim=0)
                 normal_image[inter_mask] = normal_img[inter_mask.reshape(-1)]
                 rot = torch.inverse(E[:3,:3])

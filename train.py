@@ -50,8 +50,8 @@ if __name__ == '__main__':
     # for i in train_dloader:
     #     print()
     
-    # for i in val_dloader:
-    #     print()
+    for i in val_dloader:
+        print()
     
     
     # Model
