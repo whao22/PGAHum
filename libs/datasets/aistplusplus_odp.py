@@ -290,9 +290,9 @@ class AISTPlusPlusDataset_ODP(torch.utils.data.Dataset):
 
         # calculate rays and near & far which intersect with cononical space bbox
         near_, far_, rays_mask = rays_intersect_3d_bbox(dst_bbox, rays_o.reshape(-1, 3), rays_d.reshape(-1, 3))
-        # # for debug
-        aa = rays_mask.reshape(1024, 1024)
-        cv2.imwrite(f"aa.jpg", aa.astype(np.uint8)*255)
+        # # # for debug
+        # aa = rays_mask.reshape(1024, 1024)
+        # cv2.imwrite(f"aa.jpg", aa.astype(np.uint8)*255)
 
         near = np.ones(H*W) * near_.mean()
         near[rays_mask] = near_

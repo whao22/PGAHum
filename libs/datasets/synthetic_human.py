@@ -265,10 +265,10 @@ class SyntheticHumanDataset(torch.utils.data.Dataset):
 
         # calculate rays and near & far which intersect with cononical space bbox
         near_, far_, rays_mask = rays_intersect_3d_bbox(dst_bbox, rays_o.reshape(-1, 3), rays_d.reshape(-1, 3))
-        # for debug
-        aa = rays_mask.reshape(1024, 1024)
-        cv2.imwrite("aa.jpg", aa.astype(np.uint8)*255)
-        cv2.imwrite("bb.jpg", image*255)
+        # # for debug
+        # aa = rays_mask.reshape(1024, 1024)
+        # cv2.imwrite("aa.jpg", aa.astype(np.uint8)*255)
+        # cv2.imwrite("bb.jpg", image*255)
         
         near = np.ones(H*W) * near_.mean()
         near[rays_mask] = near_
@@ -327,13 +327,13 @@ class SyntheticHumanDataset(torch.utils.data.Dataset):
             results['z_vals'] = z_vals.astype(np.float32)
             results['hit_mask'] = np.logical_or(inter_mask, rays_alpha.reshape(-1).astype(np.bool_))
             
-            # for debug
-            imask = inter_mask.reshape(256, 256)
-            rimg = rays_img.reshape(256,256, 3)
-            imask = np.logical_not(imask)
-            rimg[imask] = 0
-            cv2.imwrite("cc.jpg", rimg*255)
-            cv2.imwrite("dd.jpg", imask*255)
+            # # for debug
+            # imask = inter_mask.reshape(256, 256)
+            # rimg = rays_img.reshape(256,256, 3)
+            # imask = np.logical_not(imask)
+            # rimg[imask] = 0
+            # cv2.imwrite("cc.jpg", rimg*255)
+            # cv2.imwrite("dd.jpg", imask*255)
             
         else:
             t_vals = np.linspace(0.0, 1.0, self.N_samples)

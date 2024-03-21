@@ -53,7 +53,6 @@ if __name__ == '__main__':
     # for i in val_dloader:
     #     print()
     
-    
     # Model
     model = module_config.get_model(conf)
     checkpoint_callback = ModelCheckpoint(save_top_k=3,
