@@ -1,0 +1,18 @@
+dataset:
+  data_path: data/H36M
+  subject: 'S7'
+  sex: 'neutral'
+  model_path: 'data/body_models/smpl'
+  start_frame: 0
+  end_frame: -1
+  skip_frame: 5
+  scale_ratio: 1 # use for scale the subject into an unit sphere
+  preprocess_views: [54138969, 55011271, 58860488, 60457274]
+  multi_view: True
+  use_smpl_sdf: True
+  bbox_margin: 0.05
+  volume_size: 256
+
+output:
+  dir: data/data_prepared
+  name: 'S7'

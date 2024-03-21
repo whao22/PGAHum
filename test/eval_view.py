@@ -11,7 +11,7 @@ from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
-image_dir = 'exp/Peoplesnapshot_1710581734_slurm_mono_1_1_3_true/wandb/run-20240317_104116-jhlb122t/gt_pred'
+image_dir = 'exp/CoreView_male-4-casual_1709841604_run_mono_1_1_3_true/wandb/run-20240311_210758-826z60oq/images'
 
 image_list = sorted(glob(os.path.join(image_dir, '*.png')))
 order = 0

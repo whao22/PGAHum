@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=hf
+#SBATCH --job-name=377
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=71

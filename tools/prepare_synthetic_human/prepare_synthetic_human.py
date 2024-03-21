@@ -16,7 +16,8 @@ import yaml
 import numpy as np
 import pickle
 import h5py
-
+import smplx
+import torch
 
 
 def parse_cfg():
@@ -51,28 +52,29 @@ def prepare_smpl_sdf(vertices, volume_size):
 
 def process_view(root, view, sid, save_root, end_frame, annots, scale_ratio):
     print(f"Process images and maskes for view {view} ... ")
-    # masks
+    # masks and images
     mask_file_list = sorted(glob(osp.join(root, "mask", f"{view}".zfill(2), "*.png")))
+    images_file_list = sorted(glob(osp.join(root, "images", f"{view}".zfill(2), "*.jpg")))
     frame_num = len(mask_file_list)
     if end_frame >= 0 and end_frame < frame_num:
         frame_num = end_frame
-    
     save_mask_path = osp.join(save_root, 'masks')
     os.makedirs(save_mask_path, exist_ok=True)
-    for ind in tqdm(range(frame_num), desc='masks'):
-        mask_file = mask_file_list[ind]
-        _, frame_id = osp.split(mask_file)
-        mask = cv2.imread(mask_file, cv2.IMREAD_GRAYSCALE) * 255
-        cv2.imwrite(osp.join(save_mask_path, frame_id), mask)
-    
-    # images
-    images_file_list = sorted(glob(osp.join(root, "images", f"{view}".zfill(2), "*.jpg")))
     save_images_path = osp.join(save_root, 'images')
     os.makedirs(save_images_path, exist_ok=True)
-    for ind in tqdm(range(frame_num), desc='images'):
+    
+    for ind in tqdm(range(frame_num), desc='images and masks'):
+        mask_file = mask_file_list[ind]
         image_file = images_file_list[ind]
         _, frame_id = osp.split(image_file)
+        _, frame_id = osp.split(mask_file)
+        
+        mask_from_file = cv2.imread(mask_file, cv2.IMREAD_GRAYSCALE).astype(np.bool_)
         image = cv2.imread(image_file)
+        mask_from_image = image.sum(-1) > 10
+        mask = np.logical_and(mask_from_file, mask_from_image)
+
+        cv2.imwrite(osp.join(save_mask_path, frame_id), mask*255)
         cv2.imwrite(osp.join(save_images_path, frame_id[:-4]+".png"), image)
 
     # load cameras
@@ -114,6 +116,7 @@ def main(cfg):
     scale_ratio = cfg['dataset']['scale_ratio']
     save_root = osp.join(cfg['output']['dir'], cfg['output']['name'])
     select_views = cfg['dataset']['preprocess_views']
+    # select_views = [1]
     volume_size = cfg['dataset']['volume_size']
     skinning_weights = dict(
         np.load('data/body_models/misc/skinning_weights_all.npz'))[gender]
@@ -127,19 +130,47 @@ def main(cfg):
 
     # load motion
     motion = np.load(osp.join(root,'motion.npz'))
-    poses = motion['poses'][:, :72] # (frame_num, 156)
-    shapes = motion['shapes'][:, :10] # (frame_num, 16)
+    poses = motion['poses'] # (frame_num, 156)
+    shapes = motion['shapes'] # (frame_num, 16)
     Rhs = motion['Rh'] # (frame_num, 3)
     Ths = motion['Th'] # (frame_num, 3)
     
     mesh_infos = {}
-    smpl_model = SMPL(sex=gender, model_dir=model_path)
+    if cfg['dataset']['subject'] == 'manuel':
+        smplx_model = smplx.create(model_path=model_path, 
+                                   model_type='smplx', 
+                                   gender=gender, 
+                                   num_betas=shapes.shape[-1],
+                                   num_pca_comps=15*3).cuda()
+    else:
+        smpl_model = SMPL(sex=gender, model_dir=model_path)
+    
     for ind in tqdm(range(frame_num), desc='mesh_infos'):
         Rh = Rhs[ind]
         Th = Ths[ind]
         betas = shapes[ind]
         thetas = poses[ind]
-        posed_vertices, joints = smpl_model(thetas, betas)
+        if cfg['dataset']['subject'] == 'manuel':
+            
+            betas = torch.from_numpy(betas).unsqueeze(0).float().cuda()
+            thetas = torch.from_numpy(thetas).unsqueeze(0).float().cuda()
+            
+            output = smplx_model(
+                        betas=betas, 
+                        global_orient=thetas[:, :3], 
+                        body_pose=thetas[:, 3:66], 
+                        left_hand_pose=thetas[:, 111:156],
+                        right_hand_pose=thetas[:, 66:111],
+                        return_verts=True,
+                        return_full_pose=True)
+            posed_vertices = output.vertices.detach().cpu().numpy().squeeze()
+            joints = output.joints.detach().cpu().numpy().squeeze()
+        
+        else:
+            betas = shapes[ind][:10]
+            thetas = poses[ind][:72]
+            posed_vertices, joints = smpl_model(thetas, betas)
+            
         mesh_infos[f'{str(ind).zfill(6)}'] = {
             'Rh': Rh,
             'Th': Th,

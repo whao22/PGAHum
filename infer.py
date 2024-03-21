@@ -24,7 +24,7 @@ parser.add_argument('--novel_pose', type=str, default='data/data_prepared/CoreVi
 parser.add_argument('--novel_pose_view', type=int, default=0, help='Which view to use for novel pose, e.g. 0 for the first view.')
 parser.add_argument('--novel_pose_type', type=str, default='zju_mocap_odp', help='The type of novel pose, e.g. zju_mocap_odp, aistplusplus_odp, amass_odp, etc.')
 parser.add_argument('--resolution_level', type=int, default=2, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
-parser.add_argument('--gpus', type=list, default=[0], help='Test on multiple GPUs.')
+parser.add_argument('--gpus', type=list, default=[1], help='Test on multiple GPUs.')
 parser.add_argument('--num-workers', type=int, default=4,
                     help='Number of workers to use for val/test loaders.')
 parser.add_argument('--run-name', type=str, default='',
@@ -39,16 +39,17 @@ if  __name__ == '__main__':
     
     # validation for novel views synthesis on training poses
     if args.infer_mode == 'nvs':
-        conf['dataset'][f'{split_mode}_subsampling_rate'] = 5
+        # conf['dataset'][f'{split_mode}_views'] = [2]
+        conf['dataset'][f'{split_mode}_subsampling_rate'] = 100
         conf['dataset'][f'{split_mode}_start_frame'] = 0
         conf['dataset'][f'{split_mode}_end_frame'] = 300
     
     # validation for generalation to unseen poses (teset poses) on novel view
     elif args.infer_mode == 'unseen':
-        conf['dataset'][f'{split_mode}_views'] = [14]
-        conf['dataset'][f'{split_mode}_subsampling_rate'] = 1
-        conf['dataset'][f'{split_mode}_start_frame'] = 480
-        conf['dataset'][f'{split_mode}_end_frame'] = 485
+        # conf['dataset'][f'{split_mode}_views'] = [2]
+        conf['dataset'][f'{split_mode}_subsampling_rate'] = 100
+        conf['dataset'][f'{split_mode}_start_frame'] = 300
+        conf['dataset'][f'{split_mode}_end_frame'] = -1
     
     # validation for generalation to out-of-distribution poses
     elif args.infer_mode == 'odp':
@@ -90,7 +91,7 @@ if  __name__ == '__main__':
                                     **kwargs)
 
     # Create PyTorch Lightning trainer
-    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/*.ckpt")))[0]
+    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[0]
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')
 

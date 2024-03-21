@@ -1,0 +1,17 @@
+dataset:
+  data_path: data/SyntheticHuman
+  subject: 'megan'
+  sex: 'female'
+  model_path: 'data/body_models/smpl'
+  start_frame: 0
+  end_frame: -1
+  scale_ratio: 1
+  preprocess_views: [0,1,2,3,4,5,6,7,8,9]
+  multi_view: True
+  use_smpl_sdf: True
+  bbox_margin: 0.05
+  volume_size: 256
+
+output:
+  dir: data/data_prepared
+  name: 'megan'

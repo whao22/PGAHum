@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=jody
+#SBATCH --job-name=vlad
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=71
@@ -19,9 +19,9 @@ gpustat
 
 user_comment='mono_1_1_3_true'
 exp_comment=`date +%s`
-run_name="SyntheticHuman-jody_${exp_comment}_slurm_${user_comment}"
+run_name="Monocap-vlad_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
-conf="confs/hfavatar-synthetic_human/SyntheticHuman-jody-mono-4gpus.conf"
+conf="confs/hfavatar-monocap/MonoCap-vlad-mono-4gpus.conf"
 echo The base experiment directory is ${base_exp_dir}.
 
 python train.py \

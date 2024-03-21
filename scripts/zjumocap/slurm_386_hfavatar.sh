@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=hf
+#SBATCH --job-name=386
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=71
@@ -17,7 +17,7 @@ gpustat
 ################################################################
 ##################### CUSTOM SCRIPTS START #####################
 
-user_comment='mvs_1_1_3_true'
+user_comment='mvs_1_1_3'
 exp_comment=`date +%s`
 run_name="CoreView_386_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"

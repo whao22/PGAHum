@@ -21,7 +21,7 @@ user_comment='mono_1_1_3_true'
 exp_comment=`date +%s`
 run_name="Peoplesnapshot-male-4-casual_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
-conf="confs/hfavatar-people_snapshot/PeopleSnapshot-male-3-casual-mono-4gpus.conf"
+conf="confs/hfavatar-people_snapshot/PeopleSnapshot-male-4-casual-mono-4gpus.conf"
 echo The base experiment directory is ${base_exp_dir}.
 
 python train.py \
