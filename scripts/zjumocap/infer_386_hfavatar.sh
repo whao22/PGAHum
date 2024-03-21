@@ -1,4 +1,4 @@
-conf="confs/hfavatar-zju/ZJUMOCAP-386-4gpus.conf"
+conf="confs/hfavatar-zjumocap/ZJUMOCAP-386-4gpus.conf"
 base_exp_dir="exp/CoreView_386_1710307067_slurm_mvs_1_1_3_true"
 
 # advanced motion

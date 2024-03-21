@@ -15,7 +15,7 @@ from libs.utils.general_utils import sample_sdf_from_grid
 
 # Arguments
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
-parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zju/ZJUMOCAP-377-mono-4gpus.conf")
+parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-377-mono-4gpus.conf")
 parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_377_1702989327_slurm_w/_inner-w/_init_sdf-w/_tri")
 parser.add_argument('--subject_dir', type=str, default='data/data_prepared/CoreView_377')
 parser.add_argument('--resolution', type=int, default=128)

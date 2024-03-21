@@ -118,7 +118,7 @@ def test_skinning_model(skinning_model, vertices_obs, vertices_cnl, dst_gtfms):
 
 if __name__ == '__main__':
     # load config
-    conf = ConfigFactory.parse_file('confs/hfavatar-zju/ZJUMOCAP-377-mono-4gpus.conf')
+    conf = ConfigFactory.parse_file('confs/hfavatar-zjumocap/ZJUMOCAP-377-mono-4gpus.conf')
     device = torch.device('cuda:0')
     
     # load SMPL prior weights and canonical joints

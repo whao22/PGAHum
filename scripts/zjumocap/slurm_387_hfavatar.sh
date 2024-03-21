@@ -21,7 +21,7 @@ user_comment='mvs_1_1_3_true'
 exp_comment=`date +%s`
 run_name="CoreView_387_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
-conf="confs/hfavatar-zju/ZJUMOCAP-387-4gpus.conf"
+conf="confs/hfavatar-zjumocap/ZJUMOCAP-387-4gpus.conf"
 echo The base experiment directory is ${base_exp_dir}.
 
 python train.py \
