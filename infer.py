@@ -39,10 +39,10 @@ if  __name__ == '__main__':
     
     # validation for novel views synthesis on training poses
     if args.infer_mode == 'nvs':
-        # conf['dataset'][f'{split_mode}_views'] = [2]
+        conf['dataset'][f'{split_mode}_views'] = [2]
         conf['dataset'][f'{split_mode}_subsampling_rate'] = 100
-        conf['dataset'][f'{split_mode}_start_frame'] = 0
-        conf['dataset'][f'{split_mode}_end_frame'] = 300
+        conf['dataset'][f'{split_mode}_start_frame'] = 150
+        conf['dataset'][f'{split_mode}_end_frame'] = 152
     
     # validation for generalation to unseen poses (teset poses) on novel view
     elif args.infer_mode == 'unseen':

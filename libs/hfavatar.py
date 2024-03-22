@@ -340,7 +340,7 @@ class HFAvatar(pl.LightningModule):
                 normal_image[inter_mask] = normal_img[inter_mask.reshape(-1)]
                 rot = torch.inverse(E[:3,:3])
                 normal_image = (torch.matmul(rot[None, ...], normal_image[..., None])[..., 0] * 128 + 128).clip(0, 255)
-            
+                normal_image[..., 1:] = normal_image[..., 1:] * -1
             # log
             self.logger.log_image(key="validation_samples",
                     images=[image_pred.detach().cpu().numpy(), 

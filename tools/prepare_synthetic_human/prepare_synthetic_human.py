@@ -122,11 +122,11 @@ def main(cfg):
         np.load('data/body_models/misc/skinning_weights_all.npz'))[gender]
     annots = np.load(os.path.join(root, 'annots.npy'), allow_pickle=True).item()
     
-    frame_num = None
-    for view in select_views:
-        view_dir = osp.join(save_root, f"{view}")
-        os.makedirs(view_dir, exist_ok=True)
-        frame_num = process_view(root, view, sid, view_dir, end_frame, annots, scale_ratio)
+    frame_num = 1300
+    # for view in select_views:
+    #     view_dir = osp.join(save_root, f"{view}")
+    #     os.makedirs(view_dir, exist_ok=True)
+    #     frame_num = process_view(root, view, sid, view_dir, end_frame, annots, scale_ratio)
 
     # load motion
     motion = np.load(osp.join(root,'motion.npz'))
@@ -204,7 +204,18 @@ def main(cfg):
 
     # write canonical joints
     shape = shapes.mean(axis=0)
-    vertices, template_joints = smpl_model(np.zeros(72), shape)
+    if cfg['dataset']['subject'] == 'manuel':
+        output = smplx_model(betas=torch.from_numpy(shape).unsqueeze(0).float().cuda(), 
+                             global_orient=torch.zeros(1, 3).float().cuda(), 
+                             body_pose=torch.zeros(1, 63).float().cuda(), 
+                             left_hand_pose=torch.zeros(1, 33).float().cuda(),
+                             right_hand_pose=torch.zeros(1, 33).float().cuda(),
+                             return_verts=True,
+                             return_full_pose=True)
+        vertices = output.vertices.detach().cpu().numpy().squeeze()
+        template_joints = output.joints.detach().cpu().numpy().squeeze()
+    else:
+        vertices, template_joints = smpl_model(np.zeros(72), shape)
     vertices = vertices * scale_ratio
     template_joints = template_joints * scale_ratio
 
