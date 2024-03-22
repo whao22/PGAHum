@@ -21,7 +21,7 @@ from libs.utils.camera_utils import \
     rays_intersect_3d_bbox
 
 
-class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
+class MONOCAP(torch.utils.data.Dataset):
     def __init__(self, 
                  dataset_folder='data/data_prepared',
                  subjects=['CoreView_313'],
@@ -291,8 +291,8 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
             
             'frame_name': frame_name, # str
             'extrinsic': E.astype(np.float32), # ndarray (4, 4)
-            'width': W//res_level, # int
-            'height': H//res_level, # int
+            'width': W//res_level if W%res_level==0 else W//res_level+1, # int
+            'height': H//res_level if H%res_level==0 else H//res_level+1, # int
             'background_color': self.bgcolor, # ndarray (3, )
             'tjoints': self.canonical_joints, # ndarray (24, 3)
             'gtfs_02v': self.gtfs_02v.astype(np.float32), # ndarray (24, 4, 4)
