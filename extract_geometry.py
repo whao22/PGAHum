@@ -74,7 +74,7 @@ if  __name__ == '__main__':
     dataset = module_config.get_dataset('test', conf)
 
     # Load State Dict
-    checkpoint_path = os.path.join(out_dir, 'checkpoints/last.ckpt')
+    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[2]
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')
     print("Load state dict ...")

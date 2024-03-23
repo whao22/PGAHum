@@ -91,7 +91,7 @@ if  __name__ == '__main__':
                                     **kwargs)
 
     # Create PyTorch Lightning trainer
-    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[0]
+    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[2]
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')
 
