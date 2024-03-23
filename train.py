@@ -84,9 +84,13 @@ if __name__ == '__main__':
                                     **kwargs)
     
     # Trainer
-    checkpoint_path = sorted(glob(os.path.join(conf.general.base_exp_dir, "checkpoints/epoch*.ckpt")))[2]
-    if not os.path.exists(checkpoint_path):
+    checkpoint_path_lst = sorted(glob(os.path.join(conf.general.base_exp_dir, "checkpoints/epoch*.ckpt")))
+    if len(checkpoint_path_lst) == 0:
         checkpoint_path = None
+    else:
+        checkpoint_path = checkpoint_path_lst[2]
+        if not os.path.exists(checkpoint_path):
+            checkpoint_path = None
 
     epochs_per_run = args.epochs_per_run
     max_epochs = conf.train.max_epochs
