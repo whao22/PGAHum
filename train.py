@@ -84,7 +84,7 @@ if __name__ == '__main__':
                                     **kwargs)
     
     # Trainer
-    checkpoint_path = sorted(glob.glob(os.path.join(conf.general.base_exp_dir, "checkpoints/epoch*.ckpt")))[2]
+    checkpoint_path = sorted(glob(os.path.join(conf.general.base_exp_dir, "checkpoints/epoch*.ckpt")))[2]
     if not os.path.exists(checkpoint_path):
         checkpoint_path = None
 
