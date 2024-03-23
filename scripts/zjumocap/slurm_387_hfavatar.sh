@@ -9,7 +9,7 @@
 
 # show currrent status
 echo Start time is `date`
-echo Directory is $PWD 
+echo Directory is $PWD
 echo This job runs on the following nodes: $SLURM_JOB_NODELIST
 conda info --envs
 gpustat
@@ -18,7 +18,8 @@ gpustat
 ##################### CUSTOM SCRIPTS START #####################
 
 user_comment='mvs_1_1_3_true'
-exp_comment=`date +%s`
+#exp_comment=`date +%s`
+exp_comment='1710989486'
 run_name="CoreView_387_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
 conf="confs/hfavatar-zjumocap/ZJUMOCAP-387-4gpus.conf"

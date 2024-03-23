@@ -181,8 +181,6 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
         if frame_name in self.cameras_dict[view] and 'distortions' in self.cameras_dict[view][frame_name]:
             K = self.cameras_dict[view][frame_name]['intrinsics']
             D = self.cameras_dict[view][frame_name]['distortions']
-            if D == [0]:
-                D = np.zeros(4)
             orig_img = cv2.undistort(orig_img, K, D)
             alpha_mask = cv2.undistort(alpha_mask, K, D)[..., None]
 
