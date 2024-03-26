@@ -3,7 +3,7 @@ import lpips
 from torch import nn
 from torch.nn import functional as F
 from libs.utils.metrics import pytorch_ssim
-
+from libs.utils.geometry_utils import get_intersection_mask
 
 class IDHRLoss(nn.Module):
     ''' Loss class for Implicit Differentiable Human Renderer (IDHR) '''
@@ -110,18 +110,36 @@ class IDHRLoss(nn.Module):
     def get_skinning_weights_loss(self, pts_w_pre, pts_w_gt):
         return torch.abs(pts_w_pre - pts_w_gt).sum(-1).mean()
 
-    def get_mask_loss(self, model_outputs, ground_truth, device):
-        """ Discarded """
-        normals = model_outputs['gradients'] * model_outputs['weights'][..., None]
-        normals = normals.sum(1)
-        E = ground_truth['extrinsic'].squeeze(0).float()
-        rot = torch.inverse(E[:3, :3])
-        normals = (torch.matmul(rot[None, ...], normals[..., None])[..., 0] * 128 + 128).clip(0, 255)
-        normals_mask = (normals - 128).abs().sum(-1).clip(0, 1)
-        fg_mask = ground_truth['batch_rays'][..., 9:10][0]
-        fg_mask = fg_mask.reshape(normals_mask.shape)
+    def sdf_mask_crit(self, msk_sdf, msk_label, iter_step):
+        alpha = 50
+        alpha_factor = 2
+        alpha_milestones = [10000, 20000, 30000, 40000, 50000]
+        for milestone in alpha_milestones:
+            if iter_step > milestone:
+                alpha = alpha * alpha_factor
+
+        msk_sdf = -alpha * msk_sdf
+        mask_loss = F.binary_cross_entropy_with_logits(msk_sdf, msk_label) / alpha
+
+        return mask_loss
+
+    def get_mask_loss(self, model_outputs, ground_truth, iter_step, device):
+        z_vals = ground_truth['z_vals']
+        occ = ground_truth['batch_rays'][..., 9:10][..., 0]
+        sdf = model_outputs['sdf'].reshape_as(z_vals)
+        min_sdf = sdf.min(dim=2)[0]
+        free_sdf = min_sdf[occ==0]
+        free_label = torch.zeros_like(free_sdf)
         
-        mask_loss = F.binary_cross_entropy(normals_mask, fg_mask)
+        with torch.no_grad():
+            intersection_mask, _ = get_intersection_mask(sdf, z_vals)
+        ind = (intersection_mask == False) * (occ == 1)
+        sdf = min_sdf[ind]
+        label = torch.ones_like(sdf)
+        sdf = torch.cat([sdf, free_sdf])
+        label = torch.cat([label, free_label])
+        
+        mask_loss = self.sdf_mask_crit(sdf, label, iter_step)
         return mask_loss
 
     def get_sdf_params_loss(self, sdf_params):
@@ -183,7 +201,7 @@ class IDHRLoss(nn.Module):
             loss_eikonal = torch.zeros(1, device=device)
         
         if self.mask_weight > 0:
-            loss_mask = self.get_mask_loss(model_outputs, ground_truth, device=device)
+            loss_mask = self.get_mask_loss(model_outputs, ground_truth, iter_step, device=device)
         else:
             loss_mask = torch.zeros(1, device=device)
         

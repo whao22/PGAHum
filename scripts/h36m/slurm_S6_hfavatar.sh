@@ -18,8 +18,7 @@ gpustat
 ##################### CUSTOM SCRIPTS START #####################
 
 user_comment='mvs_1_1_3_true'
-# exp_comment=`date +%s`
-exp_comment='1711033634'
+exp_comment=`date +%s`
 run_name="H36M_S6_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
 conf="confs/hfavatar-people_h36m/H36M-S6-4gpus.conf"

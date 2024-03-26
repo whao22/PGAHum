@@ -10,8 +10,8 @@ from pyhocon import ConfigFactory
 from torch.utils.data import DataLoader
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning import seed_everything
-
 from libs import module_config
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -60,8 +60,8 @@ if __name__ == '__main__':
                                           every_n_epochs=conf.train.save_every_epoch,
                                           save_on_train_epoch_end=True,
                                           save_last=True,
-                                          monitor='val_psnr',
-                                          mode='max')
+                                          monitor='val_lpips',
+                                          mode='min')
     
     # Logger
     latest_wandb_path = glob(os.path.join(conf.general.base_exp_dir, 'wandb', 'latest-run', 'run-*.wandb'))
@@ -120,6 +120,6 @@ if __name__ == '__main__':
                         accelerator='gpu',
                         strategy='ddp' if len(conf.train.gpus) > 1 else None,
                         devices=conf.train.gpus,
-                        num_sanity_val_steps=3)
+                        num_sanity_val_steps=0)
     
     trainer.fit(model=model, train_dataloaders=train_dloader, val_dataloaders=val_dloader, ckpt_path=checkpoint_path)

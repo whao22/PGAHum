@@ -53,7 +53,9 @@ class HFAvatar(pl.LightningModule):
         os.makedirs(self.base_exp_dir, exist_ok=True)
         
         # Loss Function
-        self.lpips = lpips.LPIPS(net='vgg')
+        lipis_type = conf.get('train.lpips_type', None)
+        lpips_type = 'vgg' if lipis_type is None else lipis_type
+        self.lpips = lpips.LPIPS(net=lpips_type)
         set_requires_grad(self.lpips, requires_grad=False)
         self.criteria = IDHRLoss(**conf['train.weights'],
                                  rgb_loss_type=conf.train.rgb_loss_type,
@@ -332,14 +334,17 @@ class HFAvatar(pl.LightningModule):
             if len(out_normal_fine) > 0:
                 if False:
                     normal_img = torch.cat(out_normal_fine, dim=0)
-                    normal_img = normal_img / (torch.norm(normal_img, dim=-1, keepdim=True) + 1e-8)
+                    normal_image[inter_mask] = normal_img[inter_mask.reshape(-1)]
+                    normal_img = normal_image / (torch.norm(normal_image, dim=-1, keepdim=True) + 1e-8)
                     normal_img = (normal_img + 1) / 2
                     normal_img[..., 1:] = normal_img[..., 1:] * -1
                     cv2.imwrite('normal.png', (normal_img.reshape(256, 256, 3).cpu().numpy() * 255).astype(np.uint8))
                 normal_img = torch.cat(out_normal_fine, dim=0)
                 normal_image[inter_mask] = normal_img[inter_mask.reshape(-1)]
                 rot = torch.inverse(E[:3,:3])
-                normal_image = (torch.matmul(rot[None, ...], normal_image[..., None])[..., 0] * 128 + 128).clip(0, 255)
+                normal_image = torch.matmul(rot[None, ...], normal_image[..., None])
+                normal_image[..., 1:] = normal_image[..., 1:] * -1
+                normal_image = (normal_image[..., 0] * 128 + 128).clip(0, 255)
                 
             # log
             self.logger.log_image(key="validation_samples",

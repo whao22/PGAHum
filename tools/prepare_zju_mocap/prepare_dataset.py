@@ -97,7 +97,7 @@ def process_view(subject_dir, img_paths, select_view, annots, output_path, scale
 
 
 def prepare_smpl_sdf(vertices, volume_size):
-    PADDING = 0.05
+    PADDING = 0.1
     faces = np.load('data/body_models/misc/faces.npz')['faces']
 
     maxv = abs(vertices).max()
@@ -191,7 +191,7 @@ def main(cfg):
         
         # dilate mesh
         sdf_resolution = 64
-        delta_sdf = 0.03
+        delta_sdf = 0.06
         posed_sdf_dict = prepare_smpl_sdf(posed_vertices, sdf_resolution)
         posed_sdf_grid = posed_sdf_dict['sdf_grid'] - delta_sdf
         posed_bbmax = posed_sdf_dict['bbmax']

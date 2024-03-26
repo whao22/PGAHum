@@ -473,6 +473,9 @@ class IDHRenderer:
             pts_W_pred = None
         elif self.deform_mode == 1:
             points_cnl, pts_W_pred = self.deform_points_skinning(points_obs, dst_gtfms, points_skl)
+        # elif self.deform_mode == 1:
+        #     pts_W_pred = None
+        #     points_cnl = points_skl.requires_grad_(True)
         else:
             raise ValueError('Unknown deform_mode: {}'.format(self.deform_mode))
         

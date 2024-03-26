@@ -23,8 +23,8 @@ parser.add_argument('--infer_mode', type=str, default='nvs', help='Inference mod
 parser.add_argument('--novel_pose', type=str, default='data/data_prepared/CoreView_392', help='Test specified novel pose, e.g. data/data_prepared/CoreView_392')
 parser.add_argument('--novel_pose_view', type=int, default=0, help='Which view to use for novel pose, e.g. 0 for the first view.')
 parser.add_argument('--novel_pose_type', type=str, default='zju_mocap_odp', help='The type of novel pose, e.g. zju_mocap_odp, aistplusplus_odp, amass_odp, etc.')
-parser.add_argument('--resolution_level', type=int, default=2, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
-parser.add_argument('--gpus', type=list, default=[1], help='Test on multiple GPUs.')
+parser.add_argument('--resolution_level', type=int, default=4, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
+parser.add_argument('--gpus', type=list, default=[3], help='Test on multiple GPUs.')
 parser.add_argument('--num-workers', type=int, default=4,
                     help='Number of workers to use for val/test loaders.')
 parser.add_argument('--run-name', type=str, default='',
@@ -41,8 +41,8 @@ if  __name__ == '__main__':
     if args.infer_mode == 'nvs':
         conf['dataset'][f'{split_mode}_views'] = [2]
         conf['dataset'][f'{split_mode}_subsampling_rate'] = 100
-        conf['dataset'][f'{split_mode}_start_frame'] = 150
-        conf['dataset'][f'{split_mode}_end_frame'] = 152
+        conf['dataset'][f'{split_mode}_start_frame'] = 30
+        conf['dataset'][f'{split_mode}_end_frame'] = 40
     
     # validation for generalation to unseen poses (teset poses) on novel view
     elif args.infer_mode == 'unseen':
@@ -91,7 +91,8 @@ if  __name__ == '__main__':
                                     **kwargs)
 
     # Create PyTorch Lightning trainer
-    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[2]
+    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[-1]
+    # checkpoint_path = os.path.join(out_dir, "checkpoints/last.ckpt")
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')
 

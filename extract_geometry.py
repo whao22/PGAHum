@@ -4,6 +4,7 @@ from pyhocon import ConfigFactory
 import torch
 import numpy as np
 import time
+from glob import glob
 import trimesh
 from torch.utils.data import DataLoader
 from libs import module_config
@@ -11,8 +12,8 @@ from libs.utils.geometry_utils import extract_geometry
 
 # Arguments
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
-parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-394-4gpus.conf")
-parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_394_1710683923_slurm_mvs_1_1_3_true")
+parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-monocap/MonoCap-olek-mono-4gpus.conf")
+parser.add_argument('--base_exp_dir', type=str, default="exp/Monocap-olek_1711276506_slurm_mono_1_1_3_true")
 parser.add_argument('--frames', type=list, default=[0], help='List of frames to extract geometry.')
 parser.add_argument('--resolution', type=int, default=256)
 parser.add_argument('--mcthreshold', type=float, default=0.0)
@@ -68,13 +69,20 @@ if  __name__ == '__main__':
     threshold = args.mcthreshold
     device = torch.device(args.device)
     
+    conf['dataset']['test_views'] = [44]
+    conf['dataset']['test_subsampling_rate'] = 100
+    conf['dataset']['test_start_frame'] = 260
+    conf['dataset']['test_end_frame'] = 300
+    
     # Model
     print("Load model ...")
     hfavatar = module_config.get_model(conf).to(device)
     dataset = module_config.get_dataset('test', conf)
 
     # Load State Dict
-    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[2]
+    # checkpoint_path = sorted(glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[2]
+    checkpoint_path = os.path.join(out_dir, "checkpoints/last.ckpt")
+    
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')
     print("Load state dict ...")

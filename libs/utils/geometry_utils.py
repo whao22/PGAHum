@@ -84,3 +84,14 @@ def prepare_smpl_sdf(vertices, volume_size):
     }
     return smpl_sdf
 
+def get_intersection_mask(sdf, z_vals):
+    """
+    sdf: n_batch, n_pixel, n_sample
+    z_vals: n_batch, n_pixel, n_sample
+    """
+    sign = torch.sign(sdf[..., :-1] * sdf[..., 1:])
+    ind = torch.min(sign * torch.arange(sign.size(2)).flip([0]).to(sign),
+                    dim=2)[1]
+    sign = sign.min(dim=2)[0]
+    intersection_mask = sign == -1
+    return intersection_mask, ind

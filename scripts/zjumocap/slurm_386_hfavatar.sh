@@ -18,7 +18,8 @@ gpustat
 ##################### CUSTOM SCRIPTS START #####################
 
 user_comment='mvs_1_1_3'
-exp_comment=`date +%s`
+# exp_comment=`date +%s`
+exp_comment='1711290959'
 run_name="CoreView_386_${exp_comment}_slurm_${user_comment}"
 base_exp_dir="exp/${run_name}"
 conf="confs/hfavatar-zjumocap/ZJUMOCAP-386-4gpus.conf"
