@@ -14,7 +14,7 @@ import pytorch_lightning as pl
 from torch.optim.optimizer import Optimizer
 
 from libs.utils.metrics import pytorch_ssim
-from libs.utils.general_utils import augm_rots, feasible
+from libs.utils.general_utils import augm_rots, feasible, batch_rodrigues
 from libs.utils.network_utils import set_requires_grad
 from libs.utils.metrics.metrics import psnr_metric, ssim_metric, lpips_metric
 from libs.renderers.renderer import IDHRenderer
@@ -294,9 +294,10 @@ class HFAvatar(pl.LightningModule):
         with torch.no_grad():
             img_fine = None
             normal_img = None
-            H, W, E = data['height'].squeeze(), data['width'].squeeze(), data['extrinsic'].squeeze()
-            bg_color = data['background_color'].squeeze()
-            inter_mask = data['hit_mask'].squeeze().reshape(H, W)
+            H, W, E = data['height'].squeeze(0), data['width'].squeeze(0), data['extrinsic'].squeeze(0)
+            bg_color = data['background_color'].squeeze(0)
+            inter_mask = data['hit_mask'].squeeze(0).reshape(H, W)
+            alpha_mask = data['batch_rays'][..., 9:10].squeeze(0).reshape(H, W).bool()
             
             image_targ = torch.tile(bg_color[None, None, :], (H, W, 1))
             img_true = data['batch_rays'][..., 6:9].squeeze()
@@ -330,7 +331,7 @@ class HFAvatar(pl.LightningModule):
                     caption=["pred image", 'GT image']
                 )
             
-            normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
+            normal_image = None
             if len(out_normal_fine) > 0:
                 if False:
                     normal_img = torch.cat(out_normal_fine, dim=0)
@@ -339,12 +340,24 @@ class HFAvatar(pl.LightningModule):
                     normal_img = (normal_img + 1) / 2
                     normal_img[..., 1:] = normal_img[..., 1:] * -1
                     cv2.imwrite('normal.png', (normal_img.reshape(256, 256, 3).cpu().numpy() * 255).astype(np.uint8))
-                normal_img = torch.cat(out_normal_fine, dim=0)
-                normal_image[inter_mask] = normal_img[inter_mask.reshape(-1)]
-                rot = torch.inverse(E[:3,:3])
-                normal_image = torch.matmul(rot[None, ...], normal_image[..., None])
+                normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
+                Re = E[:3, :3]
+                # Rh = data['rh'].squeeze(0)
+                Rc = data['camera_e'].squeeze(0)[:3,:3]
+                # Re_inv = torch.inverse(Re)
+                # Rh_inv = torch.inverse(Rh)
+                Rc_inv = torch.inverse(Rc)
+
+                normal_img = torch.cat(out_normal_fine, dim=0) # (N_rays, 3)
+                normal_image[inter_mask] = normal_img[inter_mask.reshape(-1)] # (H, W, 3)            
                 normal_image[..., 1:] = normal_image[..., 1:] * -1
+                normal_image = torch.matmul(Re[None, ...], normal_image[..., None])
+                normal_image = torch.matmul(Rc_inv[None, ...], normal_image)
                 normal_image = (normal_image[..., 0] * 128 + 128).clip(0, 255)
+                alpha_image = torch.ones_like(normal_image)[..., :1]
+                alpha_image[alpha_mask] = 255
+                normal_image = torch.cat([normal_image, alpha_image], dim=-1)
+                # cv2.imwrite('normal.png', (normal_image.reshape(256, 256, 4).cpu().numpy()).astype(np.uint8))
                 
             # log
             self.logger.log_image(key="validation_samples",

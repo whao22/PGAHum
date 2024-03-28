@@ -28,6 +28,7 @@ if __name__ == '__main__':
     
     # Configration
     conf = ConfigFactory.parse_file(args.conf)
+    # args.base_exp_dir = 'exp/Peoplesnapshot-male-3-casual_1711424734_slurm_mono_1_1_3_true'
     if args.base_exp_dir is not None:
         conf.put('general.base_exp_dir', args.base_exp_dir)
     

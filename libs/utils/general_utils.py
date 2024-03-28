@@ -598,3 +598,32 @@ def inv_transform_points_smpl_verts(self, points, smpl_verts, skinning_weights, 
     points_new = normalize_canonical_points(points_new, coord_min, coord_max, center)
 
     return points_new, transforms_fwd
+
+def batch_rodrigues(aa_rots):
+    '''
+    convert batch of rotations in axis-angle representation to matrix representation
+    :param aa_rots: Nx3
+    :return: mat_rots: Nx3x3
+    '''
+
+    dtype = aa_rots.dtype
+    device = aa_rots.device
+
+    batch_size = aa_rots.shape[0]
+
+    angle = torch.norm(aa_rots + 1e-8, dim=1, keepdim=True)
+    rot_dir = aa_rots / angle
+
+    cos = torch.unsqueeze(torch.cos(angle), dim=1)
+    sin = torch.unsqueeze(torch.sin(angle), dim=1)
+
+    # Bx1 arrays
+    rx, ry, rz = torch.split(rot_dir, 1, dim=1)
+
+    zeros = torch.zeros((batch_size, 1), dtype=dtype, device=device)
+    K = torch.cat([zeros, -rz, ry, rz, zeros, -rx, -ry, rx, zeros], dim=1) \
+        .view((batch_size, 3, 3))
+
+    ident = torch.eye(3, dtype=dtype, device=device).unsqueeze(dim=0)
+    rot_mat = ident + sin * K + (1 - cos) * torch.bmm(K, K)
+    return rot_mat

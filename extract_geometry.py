@@ -12,9 +12,9 @@ from libs.utils.geometry_utils import extract_geometry
 
 # Arguments
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
-parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-monocap/MonoCap-olek-mono-4gpus.conf")
-parser.add_argument('--base_exp_dir', type=str, default="exp/Monocap-olek_1711276506_slurm_mono_1_1_3_true")
-parser.add_argument('--frames', type=list, default=[0], help='List of frames to extract geometry.')
+parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-people_snapshot/PeopleSnapshot-male-3-casual-mono-4gpus.conf")
+parser.add_argument('--base_exp_dir', type=str, default="exp/Peoplesnapshot-male-3-casual_1711424734_slurm_mono_1_1_3_true")
+parser.add_argument('--frames', type=list, default=[3], help='List of frames to extract geometry.')
 parser.add_argument('--resolution', type=int, default=256)
 parser.add_argument('--mcthreshold', type=float, default=0.0)
 parser.add_argument('--device', type=str, default="cuda:1", help="cuda / cpu")
@@ -69,10 +69,10 @@ if  __name__ == '__main__':
     threshold = args.mcthreshold
     device = torch.device(args.device)
     
-    conf['dataset']['test_views'] = [44]
-    conf['dataset']['test_subsampling_rate'] = 100
-    conf['dataset']['test_start_frame'] = 260
-    conf['dataset']['test_end_frame'] = 300
+    # conf['dataset']['test_views'] = [44]
+    # conf['dataset']['test_subsampling_rate'] = 100
+    # conf['dataset']['test_start_frame'] = 260
+    # conf['dataset']['test_end_frame'] = 300
     
     # Model
     print("Load model ...")

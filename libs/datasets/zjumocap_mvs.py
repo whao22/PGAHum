@@ -8,7 +8,11 @@ import torch
 import torch.utils.data
 import trimesh
 
-from libs.utils.general_utils import rays_mesh_intersections_pcu, get_02v_bone_transforms, get_z_vals
+from libs.utils.general_utils import \
+    rays_mesh_intersections_pcu, \
+    get_02v_bone_transforms, \
+    get_z_vals, \
+    batch_rodrigues
 from libs.utils.images_utils import load_image
 from libs.utils.body_utils import \
     body_pose_to_body_RTs, \
@@ -308,7 +312,9 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
                 'bbmax': self.smpl_sdf['bbmax'].astype(np.float32),
                 'sdf_grid': self.smpl_sdf['sdf_grid'].astype(np.float32),
             },
-            'geo_latent_code_idx': idx
+            'geo_latent_code_idx': idx,
+            'camera_e':self.cameras_dict[view][frame_name]['extrinsics'].astype(np.float32),
+            'rh': cv2.Rodrigues(dst_skel_info['Rh'].copy().astype(np.float32))[0].T,
             # 'rots': pose_rot.astype(np.float32), # (24, 9), pose rotation, where the root rotation is identity
             # 'Jtrs': Jtr_norm.astype(np.float32), # (24 3), T-pose joint points
         }
@@ -434,7 +440,9 @@ class ZJUMoCapDataset_MVS(torch.utils.data.Dataset):
                 'bbmax': self.smpl_sdf['bbmax'].astype(np.float32),
                 'sdf_grid': self.smpl_sdf['sdf_grid'].astype(np.float32),
             },
-            'geo_latent_code_idx': idx
+            'geo_latent_code_idx': idx,
+            'camera_e':self.cameras_dict[view][frame_name]['extrinsics'].astype(np.float32),
+            'rh': cv2.Rodrigues(dst_skel_info['Rh'].copy().astype(np.float32))[0].T,
         }
         if self.ray_shoot_mode == 'patch':
             results.update({

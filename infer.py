@@ -24,7 +24,7 @@ parser.add_argument('--novel_pose', type=str, default='data/data_prepared/CoreVi
 parser.add_argument('--novel_pose_view', type=int, default=0, help='Which view to use for novel pose, e.g. 0 for the first view.')
 parser.add_argument('--novel_pose_type', type=str, default='zju_mocap_odp', help='The type of novel pose, e.g. zju_mocap_odp, aistplusplus_odp, amass_odp, etc.')
 parser.add_argument('--resolution_level', type=int, default=4, help='Test rendering resolution level. e.g. 4(256, 256), 2(512, 512)')
-parser.add_argument('--gpus', type=list, default=[3], help='Test on multiple GPUs.')
+parser.add_argument('--gpus', type=list, default=[1], help='Test on multiple GPUs.')
 parser.add_argument('--num-workers', type=int, default=4,
                     help='Number of workers to use for val/test loaders.')
 parser.add_argument('--run-name', type=str, default='',

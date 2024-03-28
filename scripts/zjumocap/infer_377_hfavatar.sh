@@ -11,6 +11,6 @@ python infer.py \
     --conf ${conf} \
     --base_exp_dir ${base_exp_dir} \
     --resolution_level 4 \
-    --infer_mode odp \
+    --infer_mode unseen \
     --novel_pose data/AIST++/motions/gBR_sFM_cAll_d05_mBR2_ch09.pkl \
     --novel_pose_type aistplusplus_odp
