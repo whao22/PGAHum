@@ -39,17 +39,17 @@ if  __name__ == '__main__':
     
     # validation for novel views synthesis on training poses
     if args.infer_mode == 'nvs':
-        conf['dataset'][f'{split_mode}_views'] = [2]
+        conf['dataset'][f'{split_mode}_views'] = [8]
         conf['dataset'][f'{split_mode}_subsampling_rate'] = 100
-        conf['dataset'][f'{split_mode}_start_frame'] = 30
-        conf['dataset'][f'{split_mode}_end_frame'] = 40
-    
+        conf['dataset'][f'{split_mode}_start_frame'] = 0
+        conf['dataset'][f'{split_mode}_end_frame'] = 10
+        
     # validation for generalation to unseen poses (teset poses) on novel view
     elif args.infer_mode == 'unseen':
         # conf['dataset'][f'{split_mode}_views'] = [2]
         conf['dataset'][f'{split_mode}_subsampling_rate'] = 100
-        conf['dataset'][f'{split_mode}_start_frame'] = 300
-        conf['dataset'][f'{split_mode}_end_frame'] = -1
+        conf['dataset'][f'{split_mode}_start_frame'] = 170
+        conf['dataset'][f'{split_mode}_end_frame'] = 180
     
     # validation for generalation to out-of-distribution poses
     elif args.infer_mode == 'odp':
@@ -91,7 +91,7 @@ if  __name__ == '__main__':
                                     **kwargs)
 
     # Create PyTorch Lightning trainer
-    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[-1]
+    checkpoint_path = sorted(glob.glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[1]
     # checkpoint_path = os.path.join(out_dir, "checkpoints/last.ckpt")
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')

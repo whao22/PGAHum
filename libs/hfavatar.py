@@ -334,6 +334,7 @@ class HFAvatar(pl.LightningModule):
             normal_image = None
             if len(out_normal_fine) > 0:
                 if False:
+                    normal_image = torch.tile(bg_color[None, None, :], (H, W, 1))
                     normal_img = torch.cat(out_normal_fine, dim=0)
                     normal_image[inter_mask] = normal_img[inter_mask.reshape(-1)]
                     normal_img = normal_image / (torch.norm(normal_image, dim=-1, keepdim=True) + 1e-8)
@@ -354,11 +355,12 @@ class HFAvatar(pl.LightningModule):
                 normal_image = torch.matmul(Re[None, ...], normal_image[..., None])
                 normal_image = torch.matmul(Rc_inv[None, ...], normal_image)
                 normal_image = (normal_image[..., 0] * 128 + 128).clip(0, 255)
+                # alpha_mask = normal_image[..., 0] != 128
                 alpha_image = torch.ones_like(normal_image)[..., :1]
                 alpha_image[alpha_mask] = 255
                 normal_image = torch.cat([normal_image, alpha_image], dim=-1)
                 # cv2.imwrite('normal.png', (normal_image.reshape(256, 256, 4).cpu().numpy()).astype(np.uint8))
-                
+                # cv2.cvtColor(normal_image.reshape(256, 256, 4).cpu().numpy(), cv2.COLOR_BGRA2RGBA)
             # log
             self.logger.log_image(key="validation_samples",
                     images=[image_pred.detach().cpu().numpy(), 

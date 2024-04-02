@@ -294,6 +294,7 @@ class SyntheticHumanDataset(torch.utils.data.Dataset):
             
             'frame_name': frame_name, # str
             'extrinsic': E.astype(np.float32), # ndarray (4, 4)
+            'intrinsic': K.astype(np.float32), # ndarray (3, 3)
             'width': W//res_level, # int
             'height': H//res_level, # int
             'background_color': self.bgcolor, # ndarray (3, )
@@ -316,6 +317,7 @@ class SyntheticHumanDataset(torch.utils.data.Dataset):
             'geo_latent_code_idx': idx,
             'camera_e':self.cameras_dict[view][frame_name]['extrinsics'].astype(np.float32),
             'rh': cv2.Rodrigues(dst_skel_info['Rh'].copy().astype(np.float32))[0].T,
+            'th': dst_skel_info['Th'].copy().astype(np.float32),
             # 'rots': pose_rot.astype(np.float32), # (24, 9), pose rotation, where the root rotation is identity
             # 'Jtrs': Jtr_norm.astype(np.float32), # (24 3), T-pose joint points
         }
@@ -432,7 +434,8 @@ class SyntheticHumanDataset(torch.utils.data.Dataset):
             'frame_name': frame_name, # str
             'width': W, # int
             'height': H, # int
-            'extrinsic': E, 
+            'extrinsic': E.astype(np.float32), # ndarray (4, 4)
+            'intrinsic': K.astype(np.float32), # ndarray (3, 3)
             'background_color': self.bgcolor, # ndarray (3, )
             'tjoints': self.canonical_joints,
             'gtfs_02v': self.gtfs_02v.astype(np.float32), # ndarray (24, 4, 4)
@@ -453,6 +456,7 @@ class SyntheticHumanDataset(torch.utils.data.Dataset):
             'geo_latent_code_idx': idx,
             'camera_e':self.cameras_dict[view][frame_name]['extrinsics'].astype(np.float32),
             'rh': cv2.Rodrigues(dst_skel_info['Rh'].copy().astype(np.float32))[0].T,
+            'th': dst_skel_info['Th'].copy().astype(np.float32),
         }
         if self.ray_shoot_mode == 'patch':
             results.update({

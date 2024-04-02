@@ -12,9 +12,9 @@ from libs.utils.geometry_utils import extract_geometry
 
 # Arguments
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
-parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-people_snapshot/PeopleSnapshot-male-3-casual-mono-4gpus.conf")
-parser.add_argument('--base_exp_dir', type=str, default="exp/Peoplesnapshot-male-3-casual_1711424734_slurm_mono_1_1_3_true")
-parser.add_argument('--frames', type=list, default=[3], help='List of frames to extract geometry.')
+parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-394-4gpus.conf")
+parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_394_1710683923_slurm_mvs_1_1_3_true")
+parser.add_argument('--frames', type=list, default=[0], help='List of frames to extract geometry.')
 parser.add_argument('--resolution', type=int, default=256)
 parser.add_argument('--mcthreshold', type=float, default=0.0)
 parser.add_argument('--device', type=str, default="cuda:1", help="cuda / cpu")
@@ -69,10 +69,11 @@ if  __name__ == '__main__':
     threshold = args.mcthreshold
     device = torch.device(args.device)
     
-    # conf['dataset']['test_views'] = [44]
-    # conf['dataset']['test_subsampling_rate'] = 100
-    # conf['dataset']['test_start_frame'] = 260
-    # conf['dataset']['test_end_frame'] = 300
+    conf['dataset']['test_views'] = [3]
+    conf['dataset']['test_subsampling_rate'] = 100
+    conf['dataset']['test_start_frame'] = 150
+    conf['dataset']['test_end_frame'] = 160
+    conf['dataset']['res_level'] = 1
     
     # Model
     print("Load model ...")
@@ -121,3 +122,16 @@ if  __name__ == '__main__':
         os.makedirs(mesh_dir, exist_ok=True)
         mesh = trimesh.Trimesh(vertices, triangles)
         mesh.export(os.path.join(mesh_dir, f"{int(time.time())}_{frame}.obj"))
+        
+        mesh_data = {
+            'vertices': vertices,
+            'triangles': triangles,
+            'E': data['extrinsic'].cpu().numpy(),
+            'K': data['intrinsic'].cpu().numpy(),
+            'camera_e': data['camera_e'].cpu().numpy(),
+            'rh': data['rh'].cpu().numpy(),
+            'th': data['th'].cpu().numpy(),
+            'hit_mask': data['hit_mask'].cpu().numpy(),
+            'alpha_mask': data['batch_rays'][..., 9:10].cpu().numpy(),
+        }
+        np.save(os.path.join(mesh_dir, f"{int(time.time())}_{frame}.npy"), mesh_data)

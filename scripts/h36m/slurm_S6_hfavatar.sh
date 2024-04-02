@@ -6,6 +6,7 @@
 #SBATCH --mem=400G
 #SBATCH --partition=gpujl
 #SBATCH --gres=gpu:4
+#SBATCH --exclude=node10
 
 # show currrent status
 echo Start time is `date`

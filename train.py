@@ -35,7 +35,7 @@ if __name__ == '__main__':
     FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
     logging.basicConfig(level=logging.INFO, format=FORMAT)
     logging.info(f'Config: {conf}')
-    seed_everything(3407)
+    # seed_everything(3407)
     
     # Dataset
     train_dloader = DataLoader(

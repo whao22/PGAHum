@@ -10,7 +10,7 @@ base_exp_dir="exp/CoreView_377_1709621919_slurm_mvs_1_1_1_true"
 python infer.py \
     --conf ${conf} \
     --base_exp_dir ${base_exp_dir} \
-    --resolution_level 4 \
-    --infer_mode unseen \
+    --resolution_level 2 \
+    --infer_mode nvs \
     --novel_pose data/AIST++/motions/gBR_sFM_cAll_d05_mBR2_ch09.pkl \
     --novel_pose_type aistplusplus_odp

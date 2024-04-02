@@ -195,6 +195,7 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
             
             'frame_name': frame_name, # str
             'extrinsic': E.astype(np.float32), # ndarray (4, 4)
+            'intrinsic': K.astype(np.float32), # ndarray (3, 3)
             'width': W//res_level, # int
             'height': H//res_level, # int
             'background_color': self.bgcolor, # ndarray (3, )
@@ -215,8 +216,9 @@ class ZJUMoCapDataset_ODP(torch.utils.data.Dataset):
                 'sdf_grid': self.smpl_sdf['sdf_grid'].astype(np.float32),
             },
             'geo_latent_code_idx': idx,
-            'camera_e':self.cameras[frame_name]['extrinsics'].astype(np.float32),
+            'camera_e': self.cameras[frame_name]['extrinsics'].astype(np.float32),
             'rh': cv2.Rodrigues(dst_skel_info['Rh'].copy().astype(np.float32))[0].T,
+            'th': dst_skel_info['Th'].copy().astype(np.float32),
             # 'rots': pose_rot.astype(np.float32), # (24, 9), pose rotation, where the root rotation is identity
             # 'Jtrs': Jtr_norm.astype(np.float32), # (24 3), T-pose joint points
         }

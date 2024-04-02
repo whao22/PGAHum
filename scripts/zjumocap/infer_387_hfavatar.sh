@@ -1,5 +1,5 @@
-conf="confs/hfavatar-zjumocap/ZJUMOCAP-377-4gpus-infer.conf"
-base_exp_dir="exp/CoreView_377_1709621919_slurm_mvs_1_1_1_true"
+conf="confs/hfavatar-zjumocap/ZJUMOCAP-387-4gpus.conf"
+base_exp_dir="exp/CoreView_387_1710989486_slurm_mvs_1_1_3_true"
 
 # advanced motion
 # --novel_pose data/AIST++/motions/gBR_sFM_cAll_d05_mBR2_ch09.pkl \
