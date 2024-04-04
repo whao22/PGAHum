@@ -8,22 +8,22 @@ from glob import glob
 import trimesh
 from torch.utils.data import DataLoader
 from libs import module_config
-from libs.utils.geometry_utils import extract_geometry
+from libs.utils.geometry_utils import extract_geometry, remove_outliers
 
 # Arguments
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
-parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-394-4gpus.conf")
-parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_394_1710683923_slurm_mvs_1_1_3_true")
+parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-387-4gpus.conf")
+parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_387")
 parser.add_argument('--frames', type=list, default=[0], help='List of frames to extract geometry.')
 parser.add_argument('--resolution', type=int, default=256)
 parser.add_argument('--mcthreshold', type=float, default=0.0)
-parser.add_argument('--device', type=str, default="cuda:1", help="cuda / cpu")
+parser.add_argument('--device', type=str, default="cuda:3", help="cuda / cpu")
 
 def multiply_corrected_Rs(Rs, correct_Rs, total_bones):
     total_bones = total_bones - 1
     return torch.matmul(Rs.reshape(-1, 3, 3),
                         correct_Rs.reshape(-1, 3, 3)).reshape(-1, total_bones, 3, 3)
-        
+
 def pose_refine(model, dst_Rs, dst_Ts, dst_posevec, total_bones):
     dst_Rs = dst_Rs.unsqueeze(0) # (B, 24, 3, 3)
     # forward pose refine
@@ -69,10 +69,10 @@ if  __name__ == '__main__':
     threshold = args.mcthreshold
     device = torch.device(args.device)
     
-    conf['dataset']['test_views'] = [3]
+    conf['dataset']['test_views'] = [0]
     conf['dataset']['test_subsampling_rate'] = 100
-    conf['dataset']['test_start_frame'] = 150
-    conf['dataset']['test_end_frame'] = 160
+    conf['dataset']['test_start_frame'] = 0
+    conf['dataset']['test_end_frame'] = 10
     conf['dataset']['res_level'] = 1
     
     # Model
@@ -81,8 +81,8 @@ if  __name__ == '__main__':
     dataset = module_config.get_dataset('test', conf)
 
     # Load State Dict
-    # checkpoint_path = sorted(glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[2]
-    checkpoint_path = os.path.join(out_dir, "checkpoints/last.ckpt")
+    checkpoint_path = sorted(glob(os.path.join(out_dir, "checkpoints/epoch*.ckpt")))[-1]
+    # checkpoint_path = os.path.join(out_dir, "checkpoints/last.ckpt")
     
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')
@@ -107,6 +107,7 @@ if  __name__ == '__main__':
             "cnl_bbmin": smpl_sdf['bbmin'],
             "cnl_bbmax": smpl_sdf['bbmax'],
             "cnl_grid_sdf": torch.from_numpy(smpl_sdf['sdf_grid']).float().to(device),
+            "dst_vertices": data['dst_vertices'][None]
         }
         deform_kwargs = {
             "skinning_weights": data['skinning_weights'][None],
@@ -121,6 +122,7 @@ if  __name__ == '__main__':
         mesh_dir = os.path.join(out_dir, 'meshes')
         os.makedirs(mesh_dir, exist_ok=True)
         mesh = trimesh.Trimesh(vertices, triangles)
+        mesh = remove_outliers(mesh)
         mesh.export(os.path.join(mesh_dir, f"{int(time.time())}_{frame}.obj"))
         
         mesh_data = {
