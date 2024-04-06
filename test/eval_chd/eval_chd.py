@@ -35,7 +35,7 @@ def chd_hfavatar(exp_name, case):
 
 def chd_arah(case):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    pred_mesh_path = f"test/eval_chd/data/{case}_arah.ply"
+    pred_mesh_path = f"test/eval_chd/data/{case}_arah.{'ply' if case == '377' else 'obj'}"
     targ_mesh_path = f"test/eval_chd/data/{case}_pet-neus_gt.ply"
 
     pred_mesh = trimesh.load_mesh(pred_mesh_path)
@@ -44,15 +44,6 @@ def chd_arah(case):
     targ_mesh_verts = trimesh.sample.sample_surface(targ_mesh, 1000)[0]
 
     source_cloud = torch.from_numpy(pred_mesh_verts)[None].float().to(device) # [1, N, 3]
-    if align_with_gt:
-        nuy_file = "exp/CoreView_377_1709621919_slurm_mvs_1_1_1_true/meshes/1712116699_0.npy"
-        mesh_data = np.load(nuy_file, allow_pickle=True).item()
-        rh = mesh_data['rh']
-        th = mesh_data['th']
-        source_cloud -= torch.from_numpy(th).float().to(device).reshape(1, 1, 3)
-        rh = torch.from_numpy(rh).float().to(device).T @ torch.from_numpy(R.from_euler('xyz', [-90, 0, 0], degrees=True).as_matrix()).to(device).float()
-        source_cloud = torch.matmul(rh.T, source_cloud.reshape(-1, 3, 1))[..., 0].reshape(1, -1, 3)
-    # trimesh.Trimesh(source_cloud.reshape(-1,3).cpu().numpy()).export("aaa.ply")
     target_cloud = torch.from_numpy(targ_mesh_verts)[None].float().to(device) # [1, M, 3]
     cd = chamfer_distance(source_cloud, target_cloud)
     return cd
@@ -68,24 +59,15 @@ def chd_nb(case):
     targ_mesh_verts = trimesh.sample.sample_surface(targ_mesh, 1000)[0]
 
     source_cloud = torch.from_numpy(pred_mesh_verts)[None].float().to(device) # [1, N, 3]
-    if align_with_gt:
-        nuy_file = "exp/CoreView_377_1709621919_slurm_mvs_1_1_1_true/meshes/1712116699_0.npy"
-        mesh_data = np.load(nuy_file, allow_pickle=True).item()
-        rh = mesh_data['rh']
-        th = mesh_data['th']
-        source_cloud -= torch.from_numpy(th).float().to(device).reshape(1, 1, 3)
-        rh = torch.from_numpy(rh).float().to(device).T @ torch.from_numpy(R.from_euler('xyz', [-90, 0, 0], degrees=True).as_matrix()).to(device).float()
-        source_cloud = torch.matmul(rh.T, source_cloud.reshape(-1, 3, 1))[..., 0].reshape(1, -1, 3)
-    # trimesh.Trimesh(source_cloud.reshape(-1,3).cpu().numpy()).export("aaa.ply")
     target_cloud = torch.from_numpy(targ_mesh_verts)[None].float().to(device) # [1, M, 3]
     cd = chamfer_distance(source_cloud, target_cloud)
     return cd
 
 if __name__ == '__main__':
-    exp_name = 'CoreView_377_1709621919_slurm_mvs_1_1_1_true'
-    cd = chd_hfavatar(exp_name, case='377')
+    exp_name = 'CoreView_386_1711290959_slurm_mvs_1_1_3'
+    cd = chd_hfavatar(exp_name, case='386')
     print("hfavatar: ", cd)
-    cd = chd_arah(case='377')
+    cd = chd_arah(case='386')
     print("arah: ", cd)
-    cd = chd_nb(case='377')
+    cd = chd_nb(case='386')
     print("nb: ", cd)

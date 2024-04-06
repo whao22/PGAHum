@@ -4,13 +4,15 @@
 
 
 <div align="center">
-  <img src="assets/odp_01_rgb.png" width="18%"/> 
-  <img src="assets/odp_01_nrl.png" width="18%"/> 
+  <img src="assets/teaser.png" width="100%"/> 
+  <!-- <img src="assets/odp_01_nrl.png" width="18%"/> 
   <img src="assets/odp_02_rgb.png" width="18%"/> 
-  <img src="assets/odp_02_nrl.png" width="18%"/>
+  <img src="assets/odp_02_nrl.png" width="18%"/> -->
 </div>
 
-Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.Abstract.
+The digitization of the human body will be crucial for  future gaming, movies, mixed reality, remote interaction, and the ``metaverse''. Recent methods have shown that 3D human avatar can be reconstructed from videos, making the 3D human avatar acquisition more convenient and flexible. Although existing methods can synthesize photorealistic novel viewpoint images, most of them lack explicit constraints on the underlying geometry, resulting in mostly subpar human geometry models.
+In this work, we introduce HF-Avatar to reconstruct high-fidelity animatable avatar with fine geometric details from videos, allowing for both high-quality geometry reconstruction with intricate details and photorealistic view synthesis on unseen poses. 
+Specifically, we propose a hybrid explicit and implicit representation schema for human body. It effectively combines the advantages of explicit representation of spatiotemporal consistency and implicit representation of topological structural freedom, enabling our network to focus on learning detailed structures of clothed humans without excessive effort on the entire body. Furthermore, a novel prior-guided inner sampling strategy is introduced. It fully leverages prior human pose and shape information to cover various parts of the human body and avoid unnecessary sampling in empty 3D space, which enhances the efficiency of volume rendering on detail structures. Besides, we propose an iterative backward deformation strategy. It accurately warps points in observation space to canonical space in a progressive manner. This provides precise detail appearance information to supervise our fine geometry learning. Moreover, it facilitates our generalization on unseen poses. With the help of the three modules, we can reconstruct a high fidelity geometry with fine details from videos. Experiments on different datasets show that compared to state-of-the-art methods, our approach exhibits good performance.
 
 ## Usage
 
