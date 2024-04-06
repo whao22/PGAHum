@@ -1,6 +1,6 @@
 dataset:
   data_path: data/SelfRecon_Synthesis
-  subject: 'male_outfit2'
+  subject: 'female_outfit2'
   sex: 'male'
   model_path: 'data/body_models/smpl'
   start_frame: 0
@@ -14,4 +14,4 @@ dataset:
 
 output:
   dir: data/data_prepared
-  name: 'male_outfit2'
+  name: 'female_outfit2'
