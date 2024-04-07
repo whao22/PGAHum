@@ -64,10 +64,10 @@ def chd_nb(case):
     return cd
 
 if __name__ == '__main__':
-    exp_name = 'CoreView_386_1711290959_slurm_mvs_1_1_3'
-    cd = chd_hfavatar(exp_name, case='386')
+    exp_name = 'CoreView_377_1710472293_slurm_mvs_1_1_3_true_woinner'
+    cd = chd_hfavatar(exp_name, case='377')
     print("hfavatar: ", cd)
-    cd = chd_arah(case='386')
-    print("arah: ", cd)
-    cd = chd_nb(case='386')
-    print("nb: ", cd)
+    # cd = chd_arah(case='377')
+    # print("arah: ", cd)
+    # cd = chd_nb(case='377')
+    # print("nb: ", cd)

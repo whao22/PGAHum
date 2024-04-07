@@ -12,8 +12,8 @@ from libs.utils.geometry_utils import extract_geometry, remove_outliers
 
 # Arguments
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
-parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-377-4gpus.conf")
-parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_377_1709621919_slurm_mvs_1_1_1_true")
+parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-selfrecon_synthesis/SelfreconSynthesis-male-outfit2-mono-4gpus.conf")
+parser.add_argument('--base_exp_dir', type=str, default="exp/SelfreconSynthesis-male_outfit2_1711697167_slurm_mono_1_1_3_true")
 parser.add_argument('--frames', type=list, default=[0], help='List of frames to extract geometry.')
 parser.add_argument('--resolution', type=int, default=256)
 parser.add_argument('--mcthreshold', type=float, default=0.0)
@@ -69,10 +69,10 @@ if  __name__ == '__main__':
     threshold = args.mcthreshold
     device = torch.device(args.device)
     
-    conf['dataset']['test_views'] = [8]
+    conf['dataset']['test_views'] = [0]
     conf['dataset']['test_subsampling_rate'] = 100
-    conf['dataset']['test_start_frame'] = 0
-    conf['dataset']['test_end_frame'] = 10
+    conf['dataset']['test_start_frame'] = 170
+    conf['dataset']['test_end_frame'] = 180
     conf['dataset']['res_level'] = 1
     
     # Model

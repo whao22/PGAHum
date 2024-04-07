@@ -40,7 +40,7 @@ def lambda_sdf(points_obs, points_cnl, sdf_network, sdf_kwargs, use_init_sdf=Tru
     if use_init_sdf:
         init_sdf = sample_sdf_from_grid(points_cnl, **sdf_kwargs)
         sdf = init_sdf + sdf * scale
-    sdf[p_dists>0.05] = 1
+    sdf[p_dists>0.1] = 1
     
     return sdf
 
