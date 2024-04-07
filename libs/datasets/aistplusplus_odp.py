@@ -338,7 +338,7 @@ class AISTPlusPlusDataset_ODP(torch.utils.data.Dataset):
             'geo_latent_code_idx': idx,
             'camera_e': self.cameras[frame_name]['extrinsics'].astype(np.float32),
             'rh': cv2.Rodrigues(dst_skel_info['Rh'].copy().astype(np.float32))[0].T,
-            'th': dst_skel_info['Th'].copy().astype(np.float32),
+            'th': dst_skel_info['Th'].copy().astype(np.float32)/93 + np.array([0.3,-1.5,-1.2]),
             # 'rots': pose_rot.astype(np.float32), # (24, 9), pose rotation, where the root rotation is identity
             # 'Jtrs': Jtr_norm.astype(np.float32), # (24 3), T-pose joint points
         }

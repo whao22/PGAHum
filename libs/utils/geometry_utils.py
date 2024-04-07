@@ -9,6 +9,18 @@ import mesh2sdf
 import trimesh
 from libs.utils.general_utils import sample_sdf_from_grid
 import pytorch3d.ops as ops
+from pytorch3d.utils import cameras_from_opencv_projection
+from pytorch3d.structures import Meshes
+from pytorch3d.renderer import (
+    look_at_view_transform,
+    PerspectiveCameras,
+    FoVPerspectiveCameras,
+    RasterizationSettings,
+    MeshRenderer,
+    MeshRasterizer,
+    TexturesVertex
+)
+
 
 def compute_gradient(y, x, grad_outputs=None, retain_graph=True, create_graph=True):
     if grad_outputs is None:
@@ -136,3 +148,61 @@ def remove_outliers(mesh: trimesh.Trimesh, max_cluster_num: int = 1):
     mesh = trimesh.Trimesh(mesh.vertices, mesh.triangles)
 
     return mesh
+
+def render_normal_from_mesh(verts, 
+                            faces, 
+                            cam_rot, 
+                            cam_trans, 
+                            K, 
+                            mask, 
+                            device, 
+                            H, 
+                            W, 
+                            use_mask=False, 
+                            cnl_render=False):
+    """Render normal image from mesh.
+
+    Args:
+        verts (_type_): [B, N, 3], Vertices of the mesh.
+        faces (_type_): [B, M, 3], Triangles of the mesh.
+        cam_rot (_type_): [B, 3, 3], Rotation matrix of the camera.
+        cam_trans (_type_): [B, 3], Translation of the camera. 
+        K (_type_): [B, 3, 3], Intrinsic matrix of the camera.
+        mask (_type_): [H, W], Mask of the image.
+        device (_type_): _description_
+        H (_type_): _description_
+        W (_type_): _description_
+        use_mask (bool, optional): _description_. Defaults to False.
+        cnl_render (bool, optional): _description_. Defaults to False.
+
+    Returns:
+        _type_: _description_
+    """    
+    mesh_bar = Meshes(verts, faces)
+    
+    raster_settings = RasterizationSettings(
+        image_size=(H, W),
+    )
+    image_size = torch.tensor([[H, W]], dtype=torch.float32, device=device)
+    cameras = cameras_from_opencv_projection(cam_rot, cam_trans, K, image_size).to(device)
+    rasterizer = MeshRasterizer(cameras=cameras, raster_settings=raster_settings)
+    rendered = rasterizer(mesh_bar)
+
+    # Compute normal image in transformed space
+    fg_mask = rendered.pix_to_face >= 0
+    fg_faces = rendered.pix_to_face[fg_mask]
+    faces_normals = -mesh_bar.faces_normals_packed().squeeze(0)
+    normal_image = -torch.ones(1, H, W, 3, dtype=torch.float32, device=device)
+    normal_image.masked_scatter_(fg_mask, torch.einsum('bij,pj->pi', cam_rot, faces_normals[fg_faces, :]))
+
+    normal_image = ((normal_image + 1) / 2.0).clip(0.0, 1.0)
+    normal_image = normal_image[..., [2,1,0]]
+    if not use_mask:
+        normal_image = normal_image[0]*255
+    else:
+        normal_image = normal_image[0]*255 * mask[..., None]
+    alpha_map = torch.ones_like(normal_image)[..., :1] * 255
+    alpha_map[normal_image[...,0]==0]=0
+    normal_image = torch.concat([normal_image, alpha_map], axis=-1)
+    
+    return normal_image

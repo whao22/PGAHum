@@ -43,7 +43,7 @@ if  __name__ == '__main__':
         conf['dataset'][f'{split_mode}_subsampling_rate'] = 100
         conf['dataset'][f'{split_mode}_start_frame'] = 0
         conf['dataset'][f'{split_mode}_end_frame'] = 10
-        
+    
     # validation for generalation to unseen poses (teset poses) on novel view
     elif args.infer_mode == 'unseen':
         # conf['dataset'][f'{split_mode}_views'] = [2]
