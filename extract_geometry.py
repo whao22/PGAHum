@@ -15,13 +15,13 @@ from libs.utils.geometry_utils import extract_geometry, remove_outliers, render_
 
 # Arguments
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
-parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-377-4gpus.conf")
-parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_377_1709621919_slurm_mvs_1_1_1_true")
-parser.add_argument('--n_frames', type=int, default=-1, help="Number of frames to extract geometry from.")
+parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-synthetic_human/SyntheticHuman-megan-mono-4gpus.conf")
+parser.add_argument('--base_exp_dir', type=str, default="exp/SyntheticHuman-megan_1712480657_slurm_mono_1_1_1_true")
+parser.add_argument('--n_frames', type=int, default=1, help="Number of frames to extract geometry from.")
 parser.add_argument('--resolution', type=int, default=256)
 parser.add_argument('--mcthreshold', type=float, default=0.0)
 parser.add_argument('--render_normal', type=bool, default=True, help="Whether to render normal map or not.")
-parser.add_argument('--mode', type=str, default='odp', help="val / odp: (out-of-distribution pose)")
+parser.add_argument('--mode', type=str, default='val', help="val / odp: (out-of-distribution pose)")
 parser.add_argument('--device', type=str, default="cuda:3", help="cuda / cpu")
 
 def multiply_corrected_Rs(Rs, correct_Rs, total_bones):
@@ -76,10 +76,10 @@ if  __name__ == '__main__':
     threshold = args.mcthreshold
     device = torch.device(args.device)
     
-    conf['dataset']['test_views'] = [0]
-    conf['dataset']['test_subsampling_rate'] = 1
+    conf['dataset']['test_views'] = [5]
+    conf['dataset']['test_subsampling_rate'] = 100
     conf['dataset']['test_start_frame'] = 0
-    conf['dataset']['test_end_frame'] = -1
+    conf['dataset']['test_end_frame'] = 10
     conf['dataset']['res_level'] = 1
     if args.mode == 'odp':
         conf['dataset']['dataset'] = 'aistplusplus_odp'
@@ -104,9 +104,7 @@ if  __name__ == '__main__':
     n_frames = args.n_frames
     mesh_dir = os.path.join(out_dir, 'odp' if args.mode == 'odp' else '', 'meshes')
     os.makedirs(mesh_dir, exist_ok=True)
-    for frame in tqdm(range(len(dataset.framelist))):
-        if n_frames != -1 and frame >= n_frames:
-            break
+    for frame in tqdm(range(n_frames)):
         data = dataset.gen_rays_for_infer(frame)
         data = cpu_data_to_gpu(data, args.device)
         dst_vertices = data['dst_vertices']

@@ -1,4 +1,4 @@
-# Learning Editable/Adaptive High-Fidelity Animatable avatar from Casual videos
+# HF-Avatar: Learning High-Fidelity Animatable Avatar with Fine Geometric Details from Videos
 
 ## Description
 
