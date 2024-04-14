@@ -1,7 +1,4 @@
-# HF-Avatar: Learning High-Fidelity Animatable Avatar with Fine Geometric Details from Videos
-
-## Description
-
+# PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction
 
 <div align="center">
   <img src="assets/teaser.png" width="100%"/> 
@@ -10,9 +7,23 @@
   <img src="assets/odp_02_nrl.png" width="18%"/> -->
 </div>
 
-The digitization of the human body will be crucial for  future gaming, movies, mixed reality, remote interaction, and the ``metaverse''. Recent methods have shown that 3D human avatar can be reconstructed from videos, making the 3D human avatar acquisition more convenient and flexible. Although existing methods can synthesize photorealistic novel viewpoint images, most of them lack explicit constraints on the underlying geometry, resulting in mostly subpar human geometry models.
-In this work, we introduce HF-Avatar to reconstruct high-fidelity animatable avatar with fine geometric details from videos, allowing for both high-quality geometry reconstruction with intricate details and photorealistic view synthesis on unseen poses. 
-Specifically, we propose a hybrid explicit and implicit representation schema for human body. It effectively combines the advantages of explicit representation of spatiotemporal consistency and implicit representation of topological structural freedom, enabling our network to focus on learning detailed structures of clothed humans without excessive effort on the entire body. Furthermore, a novel prior-guided inner sampling strategy is introduced. It fully leverages prior human pose and shape information to cover various parts of the human body and avoid unnecessary sampling in empty 3D space, which enhances the efficiency of volume rendering on detail structures. Besides, we propose an iterative backward deformation strategy. It accurately warps points in observation space to canonical space in a progressive manner. This provides precise detail appearance information to supervise our fine geometry learning. Moreover, it facilitates our generalization on unseen poses. With the help of the three modules, we can reconstruct a high fidelity geometry with fine details from videos. Experiments on different datasets show that compared to state-of-the-art methods, our approach exhibits good performance.
+<div>
+  <!-- <text> <b>PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction</b> </text> <br> -->
+  <text style="font-style:italic;"> Hao Wang, Qingshan Xu, Hongyuan Chen, Rui Ma </text>
+</div>
+
+## Description
+
+Recent techniques on implicit geometry representation learning and neural rendering have shown promising results for 3D clothed human reconstruction from sparse video inputs.
+However, it is still challenging to reconstruct detailed surface geometry and even more difficult to synthesize photorealistic novel views with animatated human poses.
+In this work, we introduce PGAHum, a prior-guided geometry and appearance learning framework for high-fidelity animatable human reconstruction.
+We thoroughly exploit 3D human priors in three key modules of PGAHum to achieve high-quality geometry reconstruction with intricate details and photorealistic view synthesis on unseen poses.
+First, a prior-based implicit geometry representation of 3D human, which contains a delta SDF predicted by a tri-plane network and a base SDF derived from the prior SMPL model, is proposed to model the surface details and the body shape in a disentangled manner.
+Second, we introduce a novel prior-guided sampling strategy that fully leverages the prior information of the human pose and body to sample the query points within or near the body surface.
+By avoiding unnecessary learning in the empty 3D space, the neural rendering can recover more appearance details.
+Last, we propose a novel iterative backward deformation strategy to progressively find the correspondence for the query point in observation space.
+A skinning weights prediction model is learned based on the prior provided by the SMPL model to achieve the iterative backward LBS deformation.
+Extensive quantitative and qualitative comparisons on various datasets are conducted and the results demonstrate the superiority of our framework. Ablation studies also verify the effectiveness of each scheme for geometry and appearance learning.
 
 ## Usage
 
@@ -22,7 +33,7 @@ Please run the following scripts for create python virtual environment and insta
 
 ```
 conda env create -f environment.yml
-conda activate hf-avatar
+conda activate pgahum
 bash scripts/install.sh
 ```
 
@@ -80,7 +91,7 @@ bash scripts/infer_377_hfavatar.sh
 
 For example, in script `run_377_hfavatar`, the term `exp_name` denoted the specified model which need to be used. resolution_level determined the level of the rendering images, `4 for (256, 256), 2 for (512, 512)`. The term `novel_view` represents a new view point for testing, which can be any one of the existing perspectives, such as any one between 0 and 22 in the context of ZJUMocap dataset. `novel_pose` specifies the directory for a new pose sequence. `infer_mode` indicates the mode of inference, and its value can be either `val` or `test`. The distinction lies in the fact that `val` involves comparison with GT images, while `test` does not. When a new pose is specified, please make sure to keep the `infer_mode=test`.
 
-## Extract Geometry
+### Extract Geometry
 
 You can run the following script to extract mesh from learned sdf function. The term `base_exp_dir` represents the model path, and `resolution` indicates the resolution of the grid for feature extraction.
 
@@ -105,4 +116,4 @@ Distributed under the GPL License. See `LICENSE` for more information.
 
 ## Acknowledgements
 
-This project is built on [ARAH](https://github.com/taconite/arah-release) and [HumanNeRF](https://github.com/chungyiweng/humannerf), thank them for their contributions.
+This project is built on [ARAH](https://github.com/taconite/arah-release), [HumanNeRF](https://github.com/chungyiweng/humannerf), [Pet-NeuS](https://github.com/yiqun-wang/PET-NeuS), and others. We thank all of them for their contributions.

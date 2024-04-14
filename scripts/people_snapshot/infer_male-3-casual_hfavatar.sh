@@ -1,4 +1,5 @@
 conf="confs/hfavatar-people_snapshot/PeopleSnapshot-male-3-casual-mono-4gpus.conf"
+# conf="confs/hfavatar-zjumocap/ZJUMOCAP-377-4gpus.conf"
 base_exp_dir="exp/Peoplesnapshot-male-3-casual_1711424734_slurm_mono_1_1_3_true"
 
 python infer.py \

@@ -10,19 +10,42 @@ from glob import glob
 import trimesh
 from torch.utils.data import DataLoader
 from scipy.spatial.transform import Rotation as R
+import sys
+sys.path.append('.')
 from libs import module_config
 from libs.utils.geometry_utils import extract_geometry, remove_outliers, render_normal_from_mesh
 
 # Arguments
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
-parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-394-4gpus.conf")
-parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_394_1710683923_slurm_mvs_1_1_3_true")
+parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-377-4gpus.conf")
+parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_377_1709621919_slurm_mvs_1_1_1_true")
 parser.add_argument('--n_frames', type=int, default=1, help="Number of frames to extract geometry from.")
 parser.add_argument('--resolution', type=int, default=256)
 parser.add_argument('--mcthreshold', type=float, default=0.0)
 parser.add_argument('--render_normal', type=bool, default=True, help="Whether to render normal map or not.")
 parser.add_argument('--mode', type=str, default='val', help="val / odp: (out-of-distribution pose)")
 parser.add_argument('--device', type=str, default="cuda:3", help="cuda / cpu")
+
+def backward_lbs(points_obs, dst_gtfms, pts_weights):
+    ''' Backward skinning based on neural network predicted skinning weights 
+    Args:
+        points_obs (tensor): canonical points. shape: [B, N, D]
+        pts_weights (tensor): conditional input. [B, N, J]
+        dst_gtfms (tensor): bone transformation matrices. shape: [B, J, D+1, D+1]
+    Returns:
+        x (tensor): skinned points. shape: [B, N, D]
+    '''
+    batch_size, N_points, _ = points_obs.shape
+    device = points_obs.device
+    
+    transforms_fwd = torch.matmul(pts_weights, dst_gtfms.reshape(batch_size, -1, 16)).reshape(batch_size, N_points, 4, 4)
+    transforms_bwd = torch.inverse(transforms_fwd)
+    # transforms_bwd = FastDiff4x4MinvFunction.apply(transforms_fwd.reshape(-1, 4, 4))[0].reshape_as(transforms_fwd)
+    homogen_coord = torch.ones(batch_size, N_points, 1, dtype=torch.float32, device=device)
+    points_homo = torch.cat([points_obs, homogen_coord], dim=-1).reshape(batch_size, N_points, 4, 1)
+    points_cnl = torch.matmul(transforms_bwd, points_homo)[..., :3, 0]
+    
+    return points_cnl
 
 def multiply_corrected_Rs(Rs, correct_Rs, total_bones):
     total_bones = total_bones - 1
@@ -76,7 +99,7 @@ if  __name__ == '__main__':
     threshold = args.mcthreshold
     device = torch.device(args.device)
     
-    conf['dataset']['test_views'] = [10]
+    conf['dataset']['test_views'] = [22]
     conf['dataset']['test_subsampling_rate'] = 100
     conf['dataset']['test_start_frame'] = 240
     conf['dataset']['test_end_frame'] = 250
@@ -108,23 +131,30 @@ if  __name__ == '__main__':
         data = dataset.gen_rays_for_infer(frame)
         data = cpu_data_to_gpu(data, args.device)
         dst_vertices = data['dst_vertices']
-        bound_min = dst_vertices.min(0)[0] - 0.1 # ndarray, [3]
-        bound_max = dst_vertices.max(0)[0] + 0.1 # ndarray, [3]
+        # bound_min = dst_vertices.min(0)[0] - 0.1 # ndarray, [3]
+        # bound_max = dst_vertices.max(0)[0] + 0.1 # ndarray, [3]
+        bound_min = torch.ones_like(dst_vertices.min(0)[0]) * -1
+        bound_max = torch.ones_like(dst_vertices.max(0)[0])
         
         dst_Rs, dst_Ts = pose_refine(hfavatar, data['dst_Rs'], data['dst_Ts'], data['dst_posevec'], hfavatar.total_bones)
         dst_gtfms = hfavatar.motion_basis_computer(dst_Rs, dst_Ts[None], data['cnl_gtfms'][None], data['tjoints'][None])
         dst_gtfms = torch.matmul(dst_gtfms, torch.inverse(data['gtfs_02v'])) # (B, 24, 4, 4)
         
+        dst_vertices = np.load("data/body_models/misc/v_templates.npz")['male']
+        dst_vertices = torch.from_numpy(dst_vertices).float().to(device)[None, ...]
+        gtfs_02v = torch.inverse(data['gtfs_02v'])
+        dst_vertices = backward_lbs(dst_vertices, gtfs_02v[None, ...], data['skinning_weights'][None, ...])
+        
         sdf_kwargs = {
             "cnl_bbmin": smpl_sdf['bbmin'],
             "cnl_bbmax": smpl_sdf['bbmax'],
             "cnl_grid_sdf": torch.from_numpy(smpl_sdf['sdf_grid']).float().to(device),
-            "dst_vertices": data['dst_vertices'][None]
+            "dst_vertices": dst_vertices,
         }
         deform_kwargs = {
             "skinning_weights": data['skinning_weights'][None],
-            "dst_gtfms": dst_gtfms,
-            "dst_posevec": data['dst_posevec'][None],
+            "dst_gtfms": torch.eye(4).reshape(1, 1, 4, 4).repeat(1, 24, 1, 1).to(dst_gtfms),
+            "dst_posevec": torch.zeros_like(data['dst_posevec'][None]),
             "dst_vertices": data['dst_vertices'][None]
         }
         
@@ -157,8 +187,8 @@ if  __name__ == '__main__':
         if args.render_normal:
             # Export norml map
             vertices = torch.from_numpy(vertices).float().to(device)
-            # R_ext = torch.from_numpy(R.from_euler('xyz', [90, -120, -20], degrees=True).as_matrix()).float().to(device)
-            # vertices = torch.matmul(R_ext, vertices.reshape(-1, 3, 1))[..., 0]
+            R_ext = torch.from_numpy(R.from_euler('xyz', [90, -120, -20], degrees=True).as_matrix()).float().to(device)
+            vertices = torch.matmul(R_ext, vertices.reshape(-1, 3, 1))[..., 0]
             vertices = torch.matmul(data['rh'].T, vertices.reshape(-1, 3, 1))[..., 0]
             vertices = (vertices + data['th'].reshape(1, 3)).unsqueeze(0)
             triangles = torch.from_numpy(triangles.astype(np.int64)).long().to(device)

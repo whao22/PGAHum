@@ -119,28 +119,29 @@ if __name__ == '__main__':
     #      [  0.0000, 537.7115, 242.4418],
     #      [  0.0000,   0.0000,   1.0000]]], device='cuda:3')
     
-    nuy_file = sorted(glob("exp/SelfreconSynthesis-male_outfit2_1711697167_slurm_mono_1_1_3_true/meshes/*.npy"))[-1]
+    nuy_file = sorted(glob("exp/CoreView_394_1710683923_slurm_mvs_1_1_3_true/meshes/*.npy"))[-1]
     mesh_data = np.load(nuy_file, allow_pickle=True).item()
     camera_e = mesh_data['camera_e']
     rh = mesh_data['rh']
-    th = mesh_data['th'] + np.array([0, -0.4, 0])
+    th = mesh_data['th'] #+ np.array([0, -0.4, 0])
     k = mesh_data['K']
     K = torch.tensor(k, device=device).reshape(1,3,3)
     # K[:2,:2] *= 2
     extrinsic = torch.tensor(camera_e, device=device).reshape(1,4,4)
     cam_rot = extrinsic[..., :3,:3]
+    # cam_rot = torch.tensor([[0,1,0],[1,0,0],[0,0,1]]).reshape_as(cam_rot).to(device)
     cam_trans = extrinsic[..., :3,3] * torch.tensor([1, 1, 1], device=device).reshape(1,3)
     
     # mesh = trimesh.load("test/eval_chd/data/377_pet-neus_gt.ply")
     # verts = mesh.vertices
     # faces = mesh.faces.astype(np.int64)
-    verts = mesh_data['vertices']
+    verts = mesh_data['vertices'].astype(np.float32)
     faces = mesh_data['triangles'].astype(np.int64)
     faces = faces[..., [0,2,1]]
-    # verts = np.matmul(R.from_euler('xyz', [-90, -90, 0], degrees=True).as_matrix(), verts.reshape(-1, 3, 1))[..., 0]
+    # verts = np.matmul(R.from_euler('xyz', [-90, 209, 0], degrees=True).as_matrix(), verts.reshape(-1, 3, 1))[..., 0]
     verts = np.matmul(rh.T, verts.reshape(-1, 3, 1))[..., 0]
     verts = verts + th.reshape(1, 3)
     # mask = mesh_data['hit_mask'].reshape(H, W)
     mask = mesh_data['alpha_mask'].reshape(H, W)
     
-    render_normal_from_mesh(verts, faces, cam_rot, cam_trans, K, mask, device)
+    render_normal_from_mesh(verts.astype(np.float32), faces, cam_rot.float(), cam_trans, K, mask, device)
