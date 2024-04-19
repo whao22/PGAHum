@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+        content="Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction.">
+  <meta name="keywords" content="PGAHum, Human Reconstruction, Neural Radiance Fields">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction</title>
+
+  <!-- Global site tag (gtag.js) - Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-PYVRSFMDRL"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+
+    function gtag() {
+      dataLayer.push(arguments);
+    }
+
+    gtag('js', new Date());
+
+    gtag('config', 'G-PYVRSFMDRL');
+  </script>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+        rel="stylesheet">
+
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <!-- <link rel="icon" href="./static/images/logo.jpg"> -->
+  <link rel="icon" href="./static/images/paper.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/bulma-carousel.min.js"></script>
+  <script src="./static/js/bulma-slider.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+<!--
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div class="navbar-menu">
+    <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
+      <a class="navbar-item" href="https://keunhong.com">
+      <span class="icon">
+          <i class="fas fa-home"></i>
+      </span>
+      </a>
+
+      <div class="navbar-item has-dropdown is-hoverable">
+        <a class="navbar-link">
+          More Research
+        </a>
+        <div class="navbar-dropdown">
+          <a class="navbar-item" href="https://hypernerf.github.io">
+            HyperNeRF
+          </a>
+          <a class="navbar-item" href="https://nerfies.github.io">
+            Nerfies
+          </a>
+          <a class="navbar-item" href="https://latentfusion.github.io">
+            LatentFusion
+          </a>
+          <a class="navbar-item" href="https://photoshape.github.io">
+            PhotoShape
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</nav>
+-->
+
+<!-- authors -->
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction</h1>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">
+              <a href="https://whao22.github.io">Hao Wang</a><sup>1</sup>,</span>
+            <span class="author-block">
+              <a href="https://ghixu.github.io">Qingshan Xu</a><sup>2</sup>,</span>
+            <span class="author-block">
+              <a href="https://github.com/ech0-7">Hongyuan Chen</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://ruim-jlu.github.io/">Rui Ma</a><sup>1,3</sup>,
+            </span>
+          </div>
+
+          <div class="is-size-5 publication-authors">
+            <span class="author-block"><sup>1</sup>Jilin University, </span>
+            <span class="author-block"><sup>2</sup>Nanyang Technological University</span>
+            <span class="author-block"><sup>3</sup>Engineering Research Center of Knowledge-Driven Human-Machine Intelligence, MOE, China</span>
+          </div>
+
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <!-- PDF Link. -->
+              <span class="link-block">
+                <a href="https://arxiv.org/pdf/2404.04555"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fas fa-file-pdf"></i>
+                  </span>
+                  <span>Paper</span>
+                </a>
+              </span>
+              <!-- Arxiv Link. -->
+              <span class="link-block">
+                <a href="https://arxiv.org/abs/2404.04555"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="ai ai-arxiv"></i>
+                  </span>
+                  <span>arXiv</span>
+                </a>
+              </span>
+              <!-- Code Link. -->
+              <span class="link-block">
+                <a href="https://github.com/whao22/PGAHum"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-github"></i>
+                  </span>
+                  <span>Code</span>
+                  </a>
+              </span>
+              <!-- Dataset Link. -->
+              <span class="link-block">
+                <a href="https://drive.google.com/drive/folders/1Kgch2KGQf868bmw8HrYmyFQA768elPi2?usp=drive_link"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="far fa-images"></i>
+                  </span>
+                  <span>Data</span>
+                  </a>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- teaser -->
+<section class="hero teaser">
+  <div class="container is-max-desktop">
+    <div class="hero-body" align="center">
+      <!--- 插入图片 -->
+      <img src="./static/images/teaser.png" width="60%" alt="Description of the image">
+
+      <!-- <img id="teaser" autoplay muted loop playsinline height="100%">
+        <source src="./static/images/teaser.png"
+                type="image/png">
+      </img> -->
+      <h2 class="subtitle has-text-centered">
+        Given sparse input videos, our PGAHum can reconstruct high-fidelity animatable avatar 
+        with fine-grained geometry and appearance details on various datasets, e.g.,ZJU-Mocap (top), 
+        PeopleSnapshot (middle) and Mono-Cap (bottom).
+      </h2>
+    </div>
+  </div>
+</section>
+
+<!-- banner videos -->
+<section class="hero is-light is-small">
+  <div class="hero-body">
+    <div class="container">
+      <div id="results-carousel" class="carousel results-carousel">
+        <div class="item item-377">
+          <video poster="" id="377" autoplay controls muted loop playsinline height="100%">
+            <source src="./static/videos/377.mp4"
+                    type="video/mp4">
+          </video>
+        </div>
+        <div class="item item-387">
+          <video poster="" id="387" autoplay controls muted loop playsinline height="100%">
+            <source src="./static/videos/387.mp4"
+                    type="video/mp4">
+          </video>
+        </div>
+        <div class="item item-male-3">
+          <video poster="" id="male-3" autoplay controls muted loop playsinline height="100%">
+            <source src="./static/videos/male-3.mp4"
+                    type="video/mp4">
+          </video>
+        </div>
+        <div class="item item-male-4">
+          <video poster="" id="male-4" autoplay controls muted loop playsinline height="100%">
+            <source src="./static/videos/male-4.mp4"
+                    type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- abstract -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Abstract. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            Recent techniques on implicit geometry representation learning and neural rendering have shown promising 
+            results for 3D clothed human reconstruction from sparse video inputs. However, it is still challenging to 
+            reconstruct detailed surface geometry and even more difficult to synthesize photorealistic novel views with 
+            animatated human poses. 
+          </p>
+          <p></p>
+            In this work, we introduce PGAHum, a prior-guided geometry and appearance learning 
+            framework for high-fidelity animatable human reconstruction. We thoroughly exploit 3D human priors in three 
+            key modules of PGAHum to achieve high-quality geometry reconstruction with intricate details and 
+            photorealistic view synthesis on unseen poses. First, a prior-based implicit geometry representation of 
+            3D human, which contains a delta SDF predicted by a tri-plane network and a base SDF derived from the prior 
+            SMPL model, is proposed to model the surface details and the body shape in a disentangled manner. 
+            Second, we introduce a novel prior-guided sampling strategy that fully leverages the prior information of 
+            the human pose and body to sample the query points within or near the body surface. By avoiding unnecessary 
+            learning in the empty 3D space, the neural rendering can recover more appearance details. Last, we propose 
+            a novel iterative backward deformation strategy to progressively find the correspondence for the query point 
+            in observation space. A skinning weights prediction model is learned based on the prior provided by the SMPL 
+            model to achieve the iterative backward LBS deformation. 
+          </p>
+          <p>
+            Extensive quantitative and qualitative comparisons on various datasets are conducted and the results 
+            demonstrate the superiority of our framework. Ablation studies also verify the effectiveness of each 
+            scheme for geometry and appearance learning. 
+          </p>
+        </div>
+      </div>
+    </div>
+    <!--/ Abstract. -->
+
+    <!-- Paper video. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Video</h2>
+        <video poster="" id="387" autoplay controls muted loop playsinline height="100%">
+          <source src="./static/videos/PGAHum_v3.m4v"
+                  type="video/mp4">
+        </video>
+        <!-- <video controls>
+          <source src="./static/videos/PGAHum_v3.m4v" type="video/mp4">
+          Your browser does not support the video tag.
+        </video> -->
+      </div>
+    </div>
+    <!--/ Paper video. -->
+  </div>
+</section>
+
+<!-- results -->
+<section class="section">
+  <div class="container is-max-desktop">
+
+    <div class="columns is-centered">
+
+      <!-- Novel View Synthesis. -->
+      <div class="column">
+        <div class="content">
+          <h2 class="title is-3">Novel View Synthesis</h2>
+          <p>
+            Additional qualitative results for novel view synthesis on ZJU-MoCap training poses.
+          </p>
+          <div align="center">
+          <img src="static/images/zjumocap_nvs.png" width="100%" alt="Dolly zoom effect">
+            <!-- <video id="dollyzoom" autoplay controls muted loop playsinline height="100%">
+              <source src="./static/videos/dollyzoom-stacked.mp4"
+                      type="video/mp4">
+            </video> -->
+          </div>
+        </div>
+      </div>
+      <!--/ Novel View Synthesis. -->
+
+      <!-- Novel Pose Synthesis. -->
+      <div class="column">
+        <h2 class="title is-3">Novel Pose Synthesis</h2>
+        <div class="columns is-centered">
+          <div class="column content">
+            <p>
+              Additional qualitative results for novel pose synthesis on ZJU-MoCap unseen poses.
+            </p>
+            <div align="center">
+              <img src="static/images/zjumocap_unseen.png" width="92.5%" alt="Matting problem">
+              <!-- <video id="matting-video" controls playsinline height="100%">
+                <source src="./static/videos/matting.mp4"
+                        type="video/mp4">
+              </video> -->
+            </div>
+          </div>
+        </div>
+      </div>
+      <!--/ Novel Pose Synthesis. -->
+    </div>
+    
+
+    <!-- Geometry Reconstruction. -->
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3">Geometry Reconstruction</h2>
+
+        <!-- ZJU-Mocap Dataset. -->
+        <h3 class="title is-4">ZJU-Mocap Dataset</h3>
+        <div class="content has-text-justified">
+          <p>
+            Additional geometry reconstruction on ZJU-MoCap datasets.
+          </p>
+        </div>
+        <div>
+          <img src="static/images/zjumocap_multiview_normal.png">
+        </div>
+        <br/>
+        <!--/ ZJU-Mocap Dataset. -->
+
+        <!-- PeopleSnapshot Dataset. -->
+        <h3 class="title is-4">PeopleSnapshot Dataset</h3>
+        <div class="content has-text-justified">
+          <p>
+            Additional geometry reconstruction on PeopleSnapshot datasets.
+          </p>
+        </div>
+        <div>
+          <img src="static/images/peoplesnapshot_multiview_normal.png">
+        </div>
+        <!--/ Re-rendering. -->
+
+      </div>
+    </div>
+    <!--/ Geometry Reconstruction. -->
+
+
+    <!-- Concurrent Work. -->
+    <!-- <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3">Related Links</h2>
+
+        <div class="content has-text-justified">
+          <p>
+            There's a lot of excellent work that was introduced around the same time as ours.
+          </p>
+          <p>
+            <a href="https://arxiv.org/abs/2104.09125">Progressive Encoding for Neural Optimization</a> introduces an idea similar to our windowed position encoding for coarse-to-fine optimization.
+          </p>
+          <p>
+            <a href="https://www.albertpumarola.com/research/D-NeRF/index.html">D-NeRF</a> and <a href="https://gvv.mpi-inf.mpg.de/projects/nonrigid_nerf/">NR-NeRF</a>
+            both use deformation fields to model non-rigid scenes.
+          </p>
+          <p>
+            Some works model videos with a NeRF by directly modulating the density, such as <a href="https://video-nerf.github.io/">Video-NeRF</a>, <a href="https://www.cs.cornell.edu/~zl548/NSFF/">NSFF</a>, and <a href="https://neural-3d-video.github.io/">DyNeRF</a>
+          </p>
+          <p>
+            There are probably many more by the time you are reading this. Check out <a href="https://dellaert.github.io/NeRF/">Frank Dellart's survey on recent NeRF papers</a>, and <a href="https://github.com/yenchenlin/awesome-NeRF">Yen-Chen Lin's curated list of NeRF papers</a>.
+          </p>
+        </div>
+      </div>
+    </div> -->
+    <!--/ Concurrent Work. -->
+
+  </div>
+</section>
+
+<!-- citation -->
+<section class="section" id="BibTeX">
+  <div class="container is-max-desktop content">
+    <h2 class="title">BibTeX</h2>
+    <pre>
+      <code>
+      @article{wang24pgahum,
+        author    = {Hao Wang and Qingshan Xu and Hongyuan Chen and Rui Ma},
+        title     = {PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction},
+        journal   = {arXiv preprint arXiv:2404.04555},
+        year      = {2024}
+      }</code></pre>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container">
+    <div class="content has-text-centered">
+      <!-- pdf -->
+      <a class="icon-link" href="./static/videos/xxx.pdf">
+        <i class="fas fa-file-pdf"></i>
+      </a>
+      <!-- email -->
+      <a class="icon-link" href="mailto:<whao22@mails.jlu.edu.cn>" class="external-link" disabled>
+        <i class="fas fa-envelope"></i>
+      </a>
+      <!-- github -->
+      <a class="icon-link" href="https://github.com/whao22" class="external-link" disabled>
+        <i class="fab fa-github"></i>
+      </a>
+      <!-- twitter -->
+      <!-- <a class="icon-link" href="https://github.com/whao22" class="external-link" disabled>
+        <i class="fab fa-twitter"></i>
+      </a> -->
+    </div>
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+          <p>
+            This website is licensed under a <a rel="license"
+                                                href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
+            Commons Attribution-ShareAlike 4.0 International License</a>.
+          </p>
+          <p>
+            This means you are free to borrow the <a
+              href="https://github.com/nerfies/nerfies.github.io">source code</a> of this website,
+            we just ask that you link back to this page in the footer.
+            Please remember to remove the analytics code included in the header of the website which
+            you do not want on your website.
+          </p>
+        </div>
+      </div>
+    </div>
+    
+  </div>
+</footer>
+
+</body>
+</html>
