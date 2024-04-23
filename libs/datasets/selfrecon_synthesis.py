@@ -283,6 +283,8 @@ class SelfreconSynthesisDataset(torch.utils.data.Dataset):
         min_xyz = self.canonical_bbox['min_xyz'].astype('float32')
         max_xyz = self.canonical_bbox['max_xyz'].astype('float32')
         results={
+            'view': view,
+            'idx': idx,
             'batch_rays': batch_rays.astype(np.float32), # ndarray (N_rays, 12)
             'bbox_mask': rays_mask.reshape(H, W)[::res_level, ::res_level], # ndarray (H, W, 1)
             
@@ -311,7 +313,7 @@ class SelfreconSynthesisDataset(torch.utils.data.Dataset):
             'geo_latent_code_idx': idx,
             'camera_e':self.cameras_dict[view][frame_name]['extrinsics'].astype(np.float32),
             'rh': cv2.Rodrigues(dst_skel_info['Rh'].copy().astype(np.float32))[0].T,
-            'th': dst_skel_info['Th'].copy().astype(np.float32),
+            'th': dst_skel_info['Th'].copy().astype(np.float32)+np.array([0,-0.4,0]),
             # 'rots': pose_rot.astype(np.float32), # (24, 9), pose rotation, where the root rotation is identity
             # 'Jtrs': Jtr_norm.astype(np.float32), # (24 3), T-pose joint points
         }

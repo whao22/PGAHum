@@ -1,6 +1,7 @@
 conf="confs/hfavatar-zjumocap/ZJUMOCAP-393-4gpus.conf"
 base_exp_dir="exp/CoreView_393_1710654406_slurm_mvs_1_1_3_true_woinner"
 
+echo ${base_exp_dir}
 # advanced motion
 # --novel_pose data/AIST++/motions/gBR_sFM_cAll_d05_mBR2_ch09.pkl \
 

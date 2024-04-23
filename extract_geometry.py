@@ -17,12 +17,12 @@ from libs.utils.geometry_utils import extract_geometry, remove_outliers, render_
 parser = argparse.ArgumentParser(description='Extract Geometry from SDF Network.')
 parser.add_argument('--conf', type=str, help='Path to config file.', default="confs/hfavatar-zjumocap/ZJUMOCAP-394-4gpus.conf")
 parser.add_argument('--base_exp_dir', type=str, default="exp/CoreView_394_1710683923_slurm_mvs_1_1_3_true")
-parser.add_argument('--n_frames', type=int, default=1, help="Number of frames to extract geometry from.")
+parser.add_argument('--n_frames', type=int, default=-1, help="Number of frames to extract geometry from.")
 parser.add_argument('--resolution', type=int, default=256)
 parser.add_argument('--mcthreshold', type=float, default=0.0)
 parser.add_argument('--render_normal', type=bool, default=True, help="Whether to render normal map or not.")
 parser.add_argument('--mode', type=str, default='val', help="val / odp: (out-of-distribution pose)")
-parser.add_argument('--device', type=str, default="cuda:3", help="cuda / cpu")
+parser.add_argument('--device', type=str, default="cuda:1", help="cuda / cpu")
 
 def multiply_corrected_Rs(Rs, correct_Rs, total_bones):
     total_bones = total_bones - 1
@@ -76,10 +76,11 @@ if  __name__ == '__main__':
     threshold = args.mcthreshold
     device = torch.device(args.device)
     
-    conf['dataset']['test_views'] = [10]
-    conf['dataset']['test_subsampling_rate'] = 100
-    conf['dataset']['test_start_frame'] = 240
-    conf['dataset']['test_end_frame'] = 250
+    
+    conf['dataset']['test_views'] = [2]
+    conf['dataset']['test_subsampling_rate'] = 2
+    conf['dataset']['test_start_frame'] = 0
+    conf['dataset']['test_end_frame'] = -1
     conf['dataset']['res_level'] = 1
     if args.mode == 'odp':
         conf['dataset']['dataset'] = 'aistplusplus_odp'
@@ -97,15 +98,17 @@ if  __name__ == '__main__':
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError('No checkpoint is found!')
     print("Load state dict ...")
-    hfavatar.load_state_dict(torch.load(checkpoint_path)['state_dict'])
+    hfavatar.load_state_dict(torch.load(checkpoint_path, map_location=device)['state_dict'])
     
     smpl_sdf = np.load(os.path.join(conf.dataset.data_dir, conf.dataset.train_split[0], "smpl_sdf.npy"), allow_pickle=True).item()
     
-    n_frames = args.n_frames
-    mesh_dir = os.path.join(out_dir, 'odp' if args.mode == 'odp' else '', 'meshes')
+    n_frames = len(dataset) if args.n_frames == -1 else args.n_frames
+    mesh_dir = os.path.join(out_dir, 'odp' if args.mode == 'odp' else f'view1_s0_e-1', 'meshes')
     os.makedirs(mesh_dir, exist_ok=True)
     for frame in tqdm(range(n_frames)):
         data = dataset.gen_rays_for_infer(frame)
+        view = data['view']
+        idx = data['idx']
         data = cpu_data_to_gpu(data, args.device)
         dst_vertices = data['dst_vertices']
         bound_min = dst_vertices.min(0)[0] - 0.1 # ndarray, [3]
@@ -134,7 +137,7 @@ if  __name__ == '__main__':
         
         mesh = trimesh.Trimesh(vertices, triangles)
         mesh = remove_outliers(mesh)
-        mesh.export(os.path.join(mesh_dir, f"{int(time.time())}_{frame}.obj"))
+        mesh.export(os.path.join(mesh_dir, f"view{view}_frame{idx}.obj"))
         vertices = mesh.vertices.astype(np.float32)
         triangles = mesh.faces.astype(np.int32)
         
@@ -152,7 +155,7 @@ if  __name__ == '__main__':
             'H': data['height'],
             'W': data['width']
         }
-        np.save(os.path.join(mesh_dir, f"{int(time.time())}_{frame}.npy"), mesh_data)
+        np.save(os.path.join(mesh_dir, f"view{view}_frame{idx}.npy"), mesh_data)
         
         if args.render_normal:
             # Export norml map
@@ -161,15 +164,17 @@ if  __name__ == '__main__':
             # vertices = torch.matmul(R_ext, vertices.reshape(-1, 3, 1))[..., 0]
             vertices = torch.matmul(data['rh'].T, vertices.reshape(-1, 3, 1))[..., 0]
             vertices = (vertices + data['th'].reshape(1, 3)).unsqueeze(0)
+            
             triangles = torch.from_numpy(triangles.astype(np.int64)).long().to(device)
             triangles = triangles[..., [0,2,1]].unsqueeze(0)
 
             cam_rot = (data['camera_e'][..., :3, :3]).unsqueeze(0)
             cam_trans = (data['camera_e'][..., :3, 3]).unsqueeze(0)
+            # cam_trans = torch.tensor([0, 0.4, 0])
             K = (data['intrinsic']).unsqueeze(0)
             H = data['height']
             W = data['width']
             mask = data['hit_mask'].reshape(H, W)
             
             normal_map = render_normal_from_mesh(vertices, triangles, cam_rot, cam_trans, K, mask, device, H, W)
-            cv2.imwrite(os.path.join(mesh_dir, f"{int(time.time())}_{frame}_normal.png"), normal_map.cpu().numpy().astype(np.uint8))
+            cv2.imwrite(os.path.join(mesh_dir, f"view{view}_frame{idx}_normal.png"), normal_map.cpu().numpy().astype(np.uint8))

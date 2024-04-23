@@ -1,5 +1,5 @@
-conf="confs/hfavatar-zjumocap/ZJUMOCAP-394-4gpus.conf"
-base_exp_dir="exp/CoreView_394_1710683923_slurm_mvs_1_1_3_true"
+conf="confs/hfavatar-zjumocap/ZJUMOCAP-386-4gpus.conf"
+base_exp_dir="exp/CoreView_386_1710307067_slurm_mvs_1_1_3_true"
 
 echo ${base_exp_dir}
 # advanced motion
@@ -9,6 +9,6 @@ python infer.py \
     --conf ${conf} \
     --base_exp_dir ${base_exp_dir} \
     --resolution_level 2 \
-    --infer_mode nvs \
+    --infer_mode unseen \
     --novel_pose data/AIST++/motions/gBR_sBM_cAll_d04_mBR1_ch06.pkl \
     --novel_pose_type aistplusplus_odp

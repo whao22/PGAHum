@@ -1,1 +1,1 @@
-ps -ef | grep wangyubo | grep wandb | grep -v grep | awk '{print $2}' | xargs kill -9
+ps -ef | grep wanghao | grep wandb | grep -v grep | awk '{print $2}' | xargs kill -9

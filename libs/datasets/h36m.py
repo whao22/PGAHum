@@ -284,6 +284,8 @@ class H36M(torch.utils.data.Dataset):
         min_xyz = self.canonical_bbox['min_xyz'].astype('float32')
         max_xyz = self.canonical_bbox['max_xyz'].astype('float32')
         results={
+            'view': view,
+            'idx': idx,
             'batch_rays': batch_rays.astype(np.float32), # ndarray (N_rays, 12)
             'bbox_mask': rays_mask.reshape(H, W)[::res_level, ::res_level], # ndarray (H, W, 1)
             

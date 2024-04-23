@@ -9,6 +9,7 @@ build
 dist
 slurm_logs
 logs
+test
 
 *so
 *pkl

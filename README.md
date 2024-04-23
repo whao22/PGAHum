@@ -1,5 +1,7 @@
 # PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction
 
+## [Paper](https://arxiv.org/pdf/2404.13862) | [Project Page](https://whao22.github.io/PGAHum)
+
 <div align="center">
   <img src="assets/teaser.png" width="100%"/> 
   <!-- <img src="assets/odp_01_nrl.png" width="18%"/> 
@@ -9,7 +11,13 @@
 
 <div>
   <!-- <text> <b>PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction</b> </text> <br> -->
-  <text style="font-style:italic;"> Hao Wang, Qingshan Xu, Hongyuan Chen, Rui Ma </text>
+  <!-- <text style="font-style:italic;"> Hao Wang, Qingshan Xu, Hongyuan Chen, Rui Ma </text> -->
+  <!-- <br> -->
+  This repository contains the implementation of our paper <a href="https://arxiv.org/pdf/2404.13862">PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction</a>.
+
+  <!-- This repository contains the implementation of our paper [PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction](https://arxiv.org/pdf/2404.13862). -->
+
+
 </div>
 
 ## Description
@@ -50,7 +58,6 @@ data/body_models
     |   └-- model.pkl
     └-- neutral
         └-- model.pkl
-
 ```
 
 Then, run the following script to extract necessary SMPL parameters used in our code:
@@ -102,11 +109,11 @@ python extract_geometry.py --conf [/path/to/conf] --base_exp_dir [/path/to/exp_d
 ## Citation
 
 ```
-@article{wang2023b,
-  title={TITLE},
-  author={AUTHOR},
-  journal={JOURNAL},
-  year={YEAR}
+@article{wang24pgahum,
+  author    = {Hao Wang and Qingshan Xu and Hongyuan Chen and Rui Ma},
+  title     = {PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction},
+  journal   = {arXiv preprint arXiv:2404.13862},
+  year      = {2024}
 }
 ```
 

@@ -356,9 +356,9 @@ class HFAvatar(pl.LightningModule):
                 normal_image = torch.matmul(Rc_inv[None, ...], normal_image)
                 normal_image = (normal_image[..., 0] * 128 + 128).clip(0, 255)
                 # alpha_mask = normal_image[..., 0] != 128
-                alpha_image = torch.ones_like(normal_image)[..., :1]
-                alpha_image[alpha_mask] = 255
-                normal_image = torch.cat([normal_image, alpha_image], dim=-1)
+                # alpha_image = torch.ones_like(normal_image)[..., :1]
+                # alpha_image[alpha_mask] = 255
+                # normal_image = torch.cat([normal_image, alpha_image], dim=-1)
                 # cv2.imwrite('normal.png', (normal_image.reshape(256, 256, 4).cpu().numpy()).astype(np.uint8))
                 # cv2.cvtColor(normal_image.reshape(256, 256, 4).cpu().numpy(), cv2.COLOR_BGRA2RGBA)
             # log
