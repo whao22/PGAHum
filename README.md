@@ -7,7 +7,7 @@ If you find **PGAHum** useful for your work please cite:
 @article{wang24pgahum,
   author    = {Hao Wang and Qingshan Xu and Hongyuan Chen and Rui Ma},
   title     = {PGAHum: Prior-Guided Geometry and Appearance Learning for High-Fidelity Animatable Human Reconstruction},
-  journal   = {arXiv preprint arXiv:2404.04555},
+  journal   = {arXiv preprint arXiv:2404.13862},
   year      = {2024}
 }
 ```
